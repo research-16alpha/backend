@@ -1,7 +1,10 @@
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+from dotenv import load_dotenv
+import os
+
+if os.getenv("ENV") != "production":
+    load_dotenv()
+
 
 class Settings:
     MONGODB_URI = os.getenv("MONGODB_URI")

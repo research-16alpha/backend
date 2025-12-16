@@ -29,8 +29,9 @@ class User(BaseModel):
     avatar: Optional[str] = None
 
     created_at: Optional[datetime] = None
-    favourites: List[str] = []
-    bag: List[str] = []
+    # Use default_factory to avoid shared mutable defaults
+    favourites: List[str] = Field(default_factory=list)
+    bag: List[str] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True

@@ -1,5 +1,6 @@
 from typing import Optional, List
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 from .models import User
 
 
@@ -34,28 +35,53 @@ class UserRepository:
         return None
 
     async def add_favourite(self, user_id: str, product_id: str):
-        await self.collection.update_one(
-            {"_id": user_id},
-            {"$addToSet": {"favourites": product_id}}
-        )
+        try:
+            await self.collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$addToSet": {"favourites": product_id}}
+            )
+        except Exception:
+            # Fall back to string id if ObjectId conversion fails
+            await self.collection.update_one(
+                {"_id": user_id},
+                {"$addToSet": {"favourites": product_id}}
+            )
 
     async def remove_favourite(self, user_id: str, product_id: str):
-        await self.collection.update_one(
-            {"_id": user_id},
-            {"$pull": {"favourites": product_id}}
-        )
+        try:
+            await self.collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$pull": {"favourites": product_id}}
+            )
+        except Exception:
+            await self.collection.update_one(
+                {"_id": user_id},
+                {"$pull": {"favourites": product_id}}
+            )
 
     async def add_to_bag(self, user_id: str, product_id: str):
-        await self.collection.update_one(
-            {"_id": user_id},
-            {"$addToSet": {"bag": product_id}}
-        )
+        try:
+            await self.collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$addToSet": {"bag": product_id}}
+            )
+        except Exception:
+            await self.collection.update_one(
+                {"_id": user_id},
+                {"$addToSet": {"bag": product_id}}
+            )
 
     async def remove_from_bag(self, user_id: str, product_id: str):
-        await self.collection.update_one(
-            {"_id": user_id},
-            {"$pull": {"bag": product_id}}
-        )
+        try:
+            await self.collection.update_one(
+                {"_id": ObjectId(user_id)},
+                {"$pull": {"bag": product_id}}
+            )
+        except Exception:
+            await self.collection.update_one(
+                {"_id": user_id},
+                {"$pull": {"bag": product_id}}
+            )
 
     async def sync_bag(self, user_id: str, bag: list):
         """Update entire bag contents"""

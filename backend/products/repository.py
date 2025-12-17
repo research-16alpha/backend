@@ -77,3 +77,59 @@ class ProductRepository:
                 del item["_id"]
         
         return total, items
+
+    @staticmethod
+    def get_best_deals(limit: int):
+        """Get products with largest discount in dollar terms, sorted by discount_value descending."""
+        items = list(products_collection.find({}))
+        
+        # Calculate discount_value for each product and filter out invalid ones
+        products_with_discount = []
+        for item in items:
+            original = item.get("original_price") or item.get("price_original")
+            final = item.get("sale_price") or item.get("price_final")
+            
+            if original and final:
+                try:
+                    original_float = float(str(original).replace('$', '').replace(',', '').strip())
+                    final_float = float(str(final).replace('$', '').replace(',', '').strip())
+                    discount_value = original_float - final_float
+                    
+                    if discount_value > 0:  # Only include products with actual discount
+                        item["discount_value"] = discount_value
+                        products_with_discount.append(item)
+                except (ValueError, TypeError):
+                    # Skip products with invalid price formats
+                    continue
+        
+        # Sort by discount_value descending
+        products_with_discount.sort(key=lambda x: x.get("discount_value", 0), reverse=True)
+        
+        # Convert _id to id string and limit results
+        result = []
+        for item in products_with_discount[:limit]:
+            if "_id" in item:
+                item["id"] = str(item["_id"])
+                del item["_id"]
+            result.append(item)
+        
+        return result
+
+    @staticmethod
+    def get_latest_products(limit: int, skip: int):
+        """Get newest products sorted by scraped_at (or _id fallback) descending."""
+        products = (
+            products_collection.find({})
+            .sort([("scraped_at", -1), ("_id", -1)])
+            .skip(skip)
+            .limit(limit)
+        )
+        items = list(products)
+        total = products_collection.count_documents({})
+
+        for item in items:
+            if "_id" in item:
+                item["id"] = str(item["_id"])
+                del item["_id"]
+
+        return total, items

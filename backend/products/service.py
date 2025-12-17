@@ -31,3 +31,17 @@ class ProductService:
         total, items = ProductRepository.get_products_by_gender(gender, limit, skip)
         transformed = [p for p in map(transform_product, items) if p]
         return total, transformed
+
+    @staticmethod
+    def get_best_deals(limit: int):
+        items = ProductRepository.get_best_deals(limit)
+        transformed = [p for p in map(transform_product, items) if p]
+        return transformed
+
+    @staticmethod
+    def get_latest_products(limit: int, skip: int):
+        print("Getting latest products with limit:", limit, "and skip:", skip)
+        total, items = ProductRepository.get_latest_products(limit, skip)
+        transformed = [p for p in map(transform_product, items) if p]
+        # print(transformed, total)
+        return total, transformed

@@ -7,6 +7,23 @@ router = APIRouter(prefix="/api/products", tags=["Products"])
 def get_top_deals(limit: int = 4):
     return ProductService.get_top_deals(limit)
 
+@router.get("/best-deals")
+def get_best_deals(limit: int = 20):
+    """Get products with largest discount in dollar terms, sorted by discount_value descending."""
+    return ProductService.get_best_deals(limit)
+
+@router.get("/latest")
+def get_latest_products(limit: int = 100, skip: int = 0):
+    total, items = ProductService.get_latest_products(limit, skip)
+    # print("Latest products fetched:", items)
+    return {
+        "products": items,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "has_more": (skip + limit) < total
+    }
+
 @router.get("/")
 def list_products(limit: int = 100, skip: int = 0):
     total, items = ProductService.get_products(limit, skip)

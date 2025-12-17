@@ -55,6 +55,20 @@ def transform_product(product: Dict) -> Optional[Dict]:
     if not has_valid_dual_price(product):
         return None
 
+    # PRICES
+    original_price = product.get("original_price") or product.get("price_original")
+    sale_price = product.get("sale_price") or product.get("price_final")
+    
+    # Calculate discount_value if not present
+    discount_value = product.get("discount_value")
+    if discount_value is None and original_price and sale_price:
+        try:
+            original_float = float(str(original_price).replace('$', '').replace(',', '').strip())
+            sale_float = float(str(sale_price).replace('$', '').replace(',', '').strip())
+            discount_value = original_float - sale_float
+        except (ValueError, TypeError):
+            discount_value = None
+
     return {
         "id": product.get("id"),
 
@@ -71,15 +85,16 @@ def transform_product(product: Dict) -> Optional[Dict]:
         "product_description": title_case(product.get("product_description")),
 
         # PRICES
-        "original_price": product.get("original_price") or product.get("price_original"),
-        "sale_price": product.get("sale_price") or product.get("price_final"),
+        "original_price": original_price,
+        "sale_price": sale_price,
         "discount": product.get("discount"),
         "disc_pct": product.get("disc_pct"),
+        "discount_value": discount_value,
 
         # ATTRIBUTES
         "available_sizes": product.get("available_sizes", []),
         "wishlist_state": bool(product.get("wishlist_state", False)),
 
         # META
-        "added_at": product.get("added_at"),
+        "scraped_at": product.get("scraped_at"),
     }

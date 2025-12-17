@@ -24,12 +24,13 @@ class Product(BaseModel):
 
     discount: Optional[int]             # 49
     disc_pct: Optional[str]             # "-50%"
+    discount_value: Optional[float]     # Dollar amount of discount (original_price - sale_price)
 
     available_sizes: Optional[List[str]]  # ["S", "M", "L", "XL", "XXL", "3XL"]
 
     wishlist_state: Optional[bool]      # convert "false" → False automatically
 
-    added_at: Optional[datetime]
+    scraped_at: Optional[datetime]
 
     class Config:
         populate_by_name = True

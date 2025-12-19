@@ -5,9 +5,10 @@ from .transformers import transform_product
 class ProductService:
 
     @staticmethod
-    def get_top_deals(limit: int):
-        items = ProductRepository.get_top_deals(limit)
-        return [p for p in map(transform_product, items) if p]
+    def get_top_deals(limit: int, skip: int = 0):
+        total, items = ProductRepository.get_top_deals(limit, skip)
+        transformed = [p for p in map(transform_product, items)if p]
+        return total, transformed
 
     @staticmethod
     def get_products(limit: int, skip: int):
@@ -34,9 +35,9 @@ class ProductService:
 
     @staticmethod
     def get_best_deals(limit: int):
-        items = ProductRepository.get_best_deals(limit)
+        total, items = ProductRepository.get_best_deals(limit)
         transformed = [p for p in map(transform_product, items) if p]
-        return transformed
+        return total, transformed
 
     @staticmethod
     def get_latest_products(limit: int, skip: int):

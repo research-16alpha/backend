@@ -5,14 +5,14 @@ from bson import ObjectId
 class ProductRepository:
 
     @staticmethod
-    def get_top_deals(limit: int):
-        items = list(products_collection.find({}))
+    def get_top_deals(limit: int, skip: int = 0):
+        items = list(products_collection.find({}).skip(skip).limit(limit))
         # Convert _id to id string
         for item in items:
             if "_id" in item:
                 item["id"] = str(item["_id"])
                 del item["_id"]
-        return items[:limit]
+        return len(items), items[:limit]
 
     @staticmethod
     def get_products(limit: int, skip: int):
@@ -113,7 +113,161 @@ class ProductRepository:
                 del item["_id"]
             result.append(item)
         
-        return result
+        return  len(result),result
+
+    # @staticmethod
+    # def get_best_deals(limit: int):
+        # pipeline = [
+        #                 {
+        #                     "$addFields": {
+        #                         "original_price_num": {
+        #                             "$toDouble": {
+        #                                 "$replaceAll": {
+        #                                     "input": {
+        #                                         "$replaceAll": {
+        #                                            "input": {
+        #                                                 "$ifNull": ["$original_price", "$price_original"]
+        #                                             },
+        #                                             "find": ",",
+        #                                             "replacement": ""
+        #                                         }
+        #                                     },
+        #                                     "find": {"$literal": "$"},
+        #                                     "replacement": ""
+        #                                 }
+        #                             }
+        #                         },
+        #                         "sale_price_num": {
+        #                             "$toDouble": {
+        #                                 "$replaceAll": {
+        #                                     "input": {
+        #                                         "$replaceAll": {
+        #                                             "input": {
+        #                                                 "$ifNull": ["$sale_price", "$price_final"]
+        #                                             },
+        #                                             "find": ",",
+        #                                             "replacement": ""
+        #                                         }
+        #                                     },
+        #                                     "find": {"$literal": "$"},
+        #                                     "replacement": ""
+        #                                 }
+        #                             }
+        #                         }
+        #                     }
+        #                 },
+        #                 {
+        #                     "$addFields": {
+        #                         "discount_value": {
+        #                             "$subtract": ["$original_price_num", "$sale_price_num"]
+        #                         }
+        #                     }
+        #                 },
+        #                 {
+        #                     "$match": {
+        #                         "discount_value": {"$gt": 0}
+        #                     }
+        #                 },
+        #                 {
+        #                     "$sort": {"discount_value": -1}
+        #                 },
+        #                 {
+        #                     "$limit": limit
+        #                 },
+        #                 {
+        #                     "$project": {
+        #                         "_id": 0,
+        #                         "id": {"$toString": "$_id"},
+        #                         "discount_value": 1,
+        #                         "original_price": 1,
+        #                         "sale_price": 1,
+        #                         "product_name": 1,
+        #                         "product_image": 1,
+        #                         "brand_name": 1,
+        #                         "product_category": 1,
+        #                         "product_sub_category": 1,
+        #                         "product_gender": 1,
+        #                         "product_description": 1
+        #                     }
+        #                 }
+        #             ]
+        pipeline = [
+            {
+                "$addFields": {
+                    "original_price_num": {
+                        "$convert": {
+                            "input": {
+                                "$regexReplace": {
+                                    "input": {
+                                        "$ifNull": ["$original_price", "$price_original"]
+                                    },
+                                    "regex": "[^0-9.]",
+                                    "replacement": ""
+                                }
+                            },
+                            "to": "double",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    },
+                    "sale_price_num": {
+                        "$convert": {
+                            "input": {
+                                "$regexReplace": {
+                                    "input": {
+                                        "$ifNull": ["$sale_price", "$price_final"]
+                                    },
+                                    "regex": "[^0-9.]",
+                                    "replacement": ""
+                                }
+                            },
+                            "to": "double",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                }
+            },
+            {
+                "$addFields": {
+                    "discount_value": {
+                        "$subtract": ["$original_price_num", "$sale_price_num"]
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "discount_value": {"$gt": 0}
+                }
+            },
+            {
+                "$sort": {"discount_value": -1}
+            },
+            {
+                "$limit": limit
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "id": {"$toString": "$_id"},
+                    "discount_value": 1,
+                    "original_price": 1,
+                    "sale_price": 1,
+                    "product_name": 1,
+                    "product_image": 1,
+                    "brand_name": 1,
+                    "product_category": 1,
+                    "product_sub_category": 1,
+                    "product_gender": 1
+                }
+            }
+        ]
+
+
+        items = list(products_collection.aggregate(pipeline))
+        total = len(items)
+        return total, items
+
 
     @staticmethod
     def get_latest_products(limit: int, skip: int):

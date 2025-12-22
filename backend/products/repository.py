@@ -1,21 +1,38 @@
 from .models import Product
 from core.database import products_collection
 from bson import ObjectId
-
+from products.models import Product
 class ProductRepository:
 
     @staticmethod
     def get_top_deals(limit: int, skip: int = 0):
+        # DUMMY IMPLEMENTATION
+        # CHANGE THIS LATER
+
+        # Get the total count without pulling data into Python
+        total_count = products_collection.count_documents({})
+        
+        # Fetch only the slice needed
         items = list(products_collection.find({}).skip(skip).limit(limit))
-        # Convert _id to id string
+        
+        validated_items = []
         for item in items:
-            if "_id" in item:
-                item["id"] = str(item["_id"])
-                del item["_id"]
-        return len(items), items[:limit]
+            # 1. Manual transform of the ID
+            item["id"] = str(item.pop("_id"))
+            
+            # 2. Validation: This is where Pydantic checks the data
+            # If the data doesn't match ProductSchema, it raises a ValidationError
+            validated_product = Product(**item)
+            
+            # 3. Convert back to dict or keep as object
+            validated_items.append(validated_product.model_dump()) 
+            
+        return total_count, len(validated_items), validated_items
 
     @staticmethod
     def get_products(limit: int, skip: int):
+        # DUMMY IMPLEMENTATION
+        # CHANGE THIS LATER
         total = products_collection.count_documents({})
         items = list(products_collection.find({}).skip(skip).limit(limit))
         # Convert _id to id string

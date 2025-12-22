@@ -17,18 +17,15 @@ class Product(BaseModel):
     product_sub_category: Optional[str] 
     product_gender: Optional[str]       
     
-    price_original: Optional[str]       
-    price_final: Optional[str]
-    sale_price: Optional[str]           
-    original_price: Optional[str]       # duplicate of price_original
-
-    discount: Optional[int]             # 49
-    disc_pct: Optional[str]             # "-50%"
-    discount_value: Optional[float]     # Dollar amount of discount (original_price - sale_price)
+    color: Optional[List[str]]
+    material: Optional[str]
+    occasion: Optional[str]
+    
+    original_price: Optional[str]
+    sale_price: Optional[str]
+    discount: Optional[int]
 
     available_sizes: Optional[List[str]]  # ["S", "M", "L", "XL", "XXL", "3XL"]
-
-    wishlist_state: Optional[bool]      # convert "false" → False automatically
 
     scraped_at: Optional[datetime]
 

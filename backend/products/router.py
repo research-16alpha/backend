@@ -30,7 +30,7 @@ def get_best_deals(limit: int = 20):
 def get_latest_products(limit: int = 100, skip: int = 0):
     total, items = ProductService.get_latest_products(limit, skip)
     # print("Latest products fetched:", items)
-    print("Returning latest products with limit:", limit, "and skip:", skip)
+    # print("Returning latest products with limit:", limit, "and skip:", skip)
     return {
         "products": items,
         "total": total,
@@ -42,6 +42,19 @@ def get_latest_products(limit: int = 100, skip: int = 0):
 @router.get("/")
 def list_products(limit: int = 100, skip: int = 0):
     total, items = ProductService.get_products(limit, skip)
+    return {
+        "products": items,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "has_more": (skip + limit) < total
+    }
+
+@router.get("/custom-sort")
+def get_products_with_custom_sort(limit: int = 100, skip: int = 0):
+    """Get products sorted by custom brand order and scraped_at."""
+    # print("api hit")
+    total, items = ProductService.get_products_with_custom_sort(limit, skip)
     return {
         "products": items,
         "total": total,

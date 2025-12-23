@@ -317,3 +317,95 @@ class ProductRepository:
                 del item["_id"]
         
         return total, items
+
+
+    @staticmethod
+    def get_products_with_custom_sort(limit: int, skip: int = 0):
+        """Get products sorted by custom brand order and scraped_at."""
+
+        # print("custom sort api called")
+        # Your hardcoded brand order
+        brand_order = ['Brioni', 'Brunello Cucinelli', 'Zegna', 'TOM FORD', 'Bottega Veneta', 'Canali', 'Polo Ralph Lauren', 'John Lobb', 'Johnstons Of Elgin', 'Kiton', 'LOEWE', 'N.Peal', 'Prada', 'Saint Laurent', 'Ralph Lauren Purple Label', 'Salvatore Ferragamo', 'Santoni', 'Zimmermann', 'FARM Rio', 'Chrome Hearts', 'Alexander McQueen', 'Valentino', 'Dolce & Gabbana', 'Dolce&Gabbana', 'Christian Louboutin', 'Maje', 'Sandro Paris', 'Missoni', 'Johanna Ortiz', 'Gabriela Hearst', 'Cartier', 'Marina Rinaldi', 'Christopher Esber', 'Oscar de la Renta', 'Derek Rose', 'Falke', 'Etro', 'ETRO', 'Balenciaga', 'Bally', 'JACQUEMUS', 'Jacquemus', 'Giorgio Armani', 'Canada Goose', 'AMI Paris', 'Yves Salomon', 'Corneliani', 'MACKAGE', 'AG Jeans', 'Fear of God', 'Orlebar Brown', 'EVISU', 'BAPE', 'A BATHING APE®', 'AAPE BY *A BATHING APE®', 'Lanvin', 'Valentino Garavani', 'Versace', "TOD's", "Tod's", 'AllSaints', 'ALLSAINTS', 'Balmain', 'Burberry', 'Chloé', 'Common Projects', 'Fleur du Mal', 'Fendi', 'FERRAGAMO', 'Ferragamo', 'Gucci', 'Hanro', 'Helmut Lang', 'Herno', 'Heron Preston', 'Hogan', 'Isabel Marant', 'Isabel Marant Etoile', 'ISSEY MIYAKE', 'Issey Miyake', 'J.Lindeberg', 'Jimmy Choo', 'Kenzo', 'Ksubi', 'lululemon', 'Mackage', 'Lladró', 'Maison Margiela', 'Marc Jacobs', 'Palm Angels', 'Palm Angels Kids', 'Paige', 'PAIGE', 'Moschino', 'Off-White', 'Off-White Kids', 'Rick Owens', 'Rick Owens DRKSHDW', 'Rick Owens Lilies', 'Rick Owens X Champion', 'RHUDE', 'Rhude', 'Roberto Cavalli', 'Theory', 'Stüssy', 'Stone Island', 'Vilebrequin', "Church's", 'Comme des Garçons', 'Comme Des Garçons', 'Acne Studios', 'Acqua di Parma', 'A-COLD-WALL*', 'Alexander Wang', 'alexanderwang.t', 'alice + olivia', 'Alice+Olivia', 'adidas Yeezy', 'Balmain Kids', 'BAPE BLACK *A BATHING APE®', 'BAPY BY *A BATHING APE®', 'Barbour', 'Barbour International', 'Birkenstock', 'BIRKENSTOCK 1774', 'DOMREBEL', 'VETEMENTS', 'Armani', 'Ea7 Emporio Armani', 'Ed Hardy', 'Fear Of God', 'FEAR OF GOD ESSENTIALS', 'Fear of God ESSENTIALS', 'Fear of God Athletics', 'FEAR OF GOD ESSENTIALS KIDS', 'Fendi Kids', 'FRAME', 'Giuseppe Zanotti', 'Givenchy', 'Gianvito Rossi', 'La Perla', 'Eileen Fisher', 'Elie Tahari', 'Eleventy', 'Emporio Armani', 'Dita Eyewear', 'TOM FORD Eyewear', 'Cartier Eyewear', 'Dolce & Gabbana Eyewear', 'Prada Eyewear', 'Gucci Eyewear', 'Alexander McQueen Eyewear', 'Balenciaga Eyewear', 'Chloé Eyewear', 'Balmain Eyewear', 'Palm Angels Eyewear', 'Burberry Eyewear', 'Givenchy Eyewear', 'Jimmy Choo Eyewear', 'Off-White Eyewear', 'Versace Eyewear', 'Hermès\xa0Pre-Owned', 'CHANEL Pre-Owned', 'Bottega Veneta Pre-Owned', 'Christian Dior Pre-Owned', 'Balenciaga Pre-Owned', 'Celine Pre-Owned', 'Fendi Pre-Owned', 'Goyard Pre-Owned', 'Gucci Pre-Owned', 'Loewe Pre-Owned', 'Louis Vuitton Pre-Owned', 'Prada Pre-Owned', 'Versace Pre-Owned', 'MEMO PARIS', 'Bond No. 9', 'Bobbi Brown', 'Estée Lauder', 'Jo Malone London', 'La Prairie', 'Kerastase', "Kiehl's", 'Lancôme', 'Prada Beauty']
+        
+        # Match filter for products with valid dual pricing
+        match_filter = {
+            "original_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
+            "sale_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
+            "$expr": {"$ne": ["$original_price", "$sale_price"]}
+        }
+        
+        # Get total count of products with valid dual pricing
+        total = products_collection.count_documents(match_filter)
+        
+        pipeline = [
+            # Match only products with valid dual pricing (both prices exist and are different)
+            {
+                "$match": match_filter
+            },
+            {
+                "$addFields": {
+                    "brand_index": {
+                        "$indexOfArray": [brand_order, "$brand_name"]
+                    }
+                }
+            },
+            {
+                # If a brand isn't in your list, indexOfArray returns -1.
+                # We move those to the end by giving them a high priority.
+                # Otherwise, assign priority based on groups of 10:
+                # - First 10 brands (indices 0-9): priority 0
+                # - Next 10 brands (indices 10-19): priority 1
+                # - Next 10 brands (indices 20-29): priority 2
+                # - And so on...
+                "$addFields": {
+                    "brand_priority": {
+                        "$cond": { 
+                            "if": { "$eq": ["$brand_index", -1] }, 
+                            "then": 999, 
+                            "else": {
+                                "$floor": {
+                                    "$divide": ["$brand_index", 3]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            { "$sort": { "brand_priority": 1, "scraped_at": -1 } },
+            { "$skip": skip },
+            { "$limit": limit },
+            # Project all fields needed for transform_product
+            {
+                "$project": {
+                    "_id": 1,
+                    "product_link": 1,
+                    "product_image": 1,
+                    "brand_name": 1,
+                    "product_name": 1,
+                    "product_description": 1,
+                    "product_category": 1,
+                    "product_sub_category": 1,
+                    "product_gender": 1,
+                    "product_color": 1,
+                    "product_material": 1,
+                    "product_occasion": 1,
+                    "currency": 1,
+                    "original_price": 1,
+                    "sale_price": 1,
+                    "discount": 1,
+                    "search_tags": 1,
+                    "available_sizes": 1,
+                    "scraped_at": 1
+                }
+            }
+        ]
+        
+        items = list(products_collection.aggregate(pipeline))
+        
+        # Convert _id to id string
+        for item in items:
+            if "_id" in item:
+                item["id"] = str(item["_id"])
+                del item["_id"]
+        
+        return total, items

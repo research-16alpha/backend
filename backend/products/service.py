@@ -20,6 +20,13 @@ class ProductService:
         return total, transformed
 
     @staticmethod
+    def get_products_with_custom_sort(limit: int, skip: int = 0):
+        """Get products sorted by custom brand order and scraped_at."""
+        total, items = ProductRepository.get_products_with_custom_sort(limit, skip)
+        transformed = [p for p in map(transform_product, items) if p]
+        return total, transformed
+
+    @staticmethod
     def get_product_by_id(product_id: str):
         product = ProductRepository.get_product_by_id(product_id)
         return transform_product(product) if product else None
@@ -44,7 +51,7 @@ class ProductService:
 
     @staticmethod
     def get_latest_products(limit: int, skip: int):
-        print("Getting latest products with limit:", limit, "and skip:", skip)
+        # print("Getting latest products with limit:", limit, "and skip:", skip)
         total, items = ProductRepository.get_latest_products(limit, skip)
         transformed = [p for p in map(transform_product, items) if p]
         # print(transformed, total)

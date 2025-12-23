@@ -2,6 +2,10 @@ from .models import Product
 from core.database import products_collection
 from bson import ObjectId
 from products.models import Product
+from typing import Dict, List, Optional, Any
+from core.constants.filter_constants import PRICE_RANGES
+
+
 class ProductRepository:
 
     @staticmethod
@@ -18,16 +22,30 @@ class ProductRepository:
         validated_items = []
         for item in items:
             # 1. Manual transform of the ID
-            item["id"] = str(item.pop("_id"))
+            if "_id" in item:
+                item["id"] = str(item.pop("_id"))
             
-            # 2. Validation: This is where Pydantic checks the data
+            # 2. Ensure all fields have defaults if missing
+            # Set defaults for fields that might be missing
+            if "product_description" not in item:
+                item["product_description"] = None
+            if "available_sizes" not in item:
+                item["available_sizes"] = None
+            if "product_color" not in item:
+                item["product_color"] = None
+            
+            # 3. Validation: This is where Pydantic checks the data
             # If the data doesn't match ProductSchema, it raises a ValidationError
-            validated_product = Product(**item)
+            try:
+                validated_product = Product(**item)
+                # 4. Convert back to dict or keep as object
+                validated_items.append(validated_product.model_dump())
+            except Exception as e:
+                # Skip invalid products instead of crashing
+                print(f"Error validating product: {e}")
+                continue
             
-            # 3. Convert back to dict or keep as object
-            validated_items.append(validated_product.model_dump()) 
-            
-        return total_count, len(validated_items), validated_items
+        return len(validated_items), validated_items
 
     @staticmethod
     def get_products(limit: int, skip: int):
@@ -97,172 +115,38 @@ class ProductRepository:
 
     @staticmethod
     def get_best_deals(limit: int):
-        """Get products with largest discount in dollar terms, sorted by discount_value descending."""
-        items = list(products_collection.find({}))
-        
-        # Calculate discount_value for each product and filter out invalid ones
-        products_with_discount = []
-        for item in items:
-            original = item.get("original_price") or item.get("price_original")
-            final = item.get("sale_price") or item.get("price_final")
-            
-            if original and final:
-                try:
-                    original_float = float(str(original).replace('$', '').replace(',', '').strip())
-                    final_float = float(str(final).replace('$', '').replace(',', '').strip())
-                    discount_value = original_float - final_float
-                    
-                    if discount_value > 0:  # Only include products with actual discount
-                        item["discount_value"] = discount_value
-                        products_with_discount.append(item)
-                except (ValueError, TypeError):
-                    # Skip products with invalid price formats
-                    continue
-        
-        # Sort by discount_value descending
-        products_with_discount.sort(key=lambda x: x.get("discount_value", 0), reverse=True)
-        
-        # Convert _id to id string and limit results
-        result = []
-        for item in products_with_discount[:limit]:
-            if "_id" in item:
-                item["id"] = str(item["_id"])
-                del item["_id"]
-            result.append(item)
-        
-        return  len(result),result
-
-    # @staticmethod
-    # def get_best_deals(limit: int):
-        # pipeline = [
-        #                 {
-        #                     "$addFields": {
-        #                         "original_price_num": {
-        #                             "$toDouble": {
-        #                                 "$replaceAll": {
-        #                                     "input": {
-        #                                         "$replaceAll": {
-        #                                            "input": {
-        #                                                 "$ifNull": ["$original_price", "$price_original"]
-        #                                             },
-        #                                             "find": ",",
-        #                                             "replacement": ""
-        #                                         }
-        #                                     },
-        #                                     "find": {"$literal": "$"},
-        #                                     "replacement": ""
-        #                                 }
-        #                             }
-        #                         },
-        #                         "sale_price_num": {
-        #                             "$toDouble": {
-        #                                 "$replaceAll": {
-        #                                     "input": {
-        #                                         "$replaceAll": {
-        #                                             "input": {
-        #                                                 "$ifNull": ["$sale_price", "$price_final"]
-        #                                             },
-        #                                             "find": ",",
-        #                                             "replacement": ""
-        #                                         }
-        #                                     },
-        #                                     "find": {"$literal": "$"},
-        #                                     "replacement": ""
-        #                                 }
-        #                             }
-        #                         }
-        #                     }
-        #                 },
-        #                 {
-        #                     "$addFields": {
-        #                         "discount_value": {
-        #                             "$subtract": ["$original_price_num", "$sale_price_num"]
-        #                         }
-        #                     }
-        #                 },
-        #                 {
-        #                     "$match": {
-        #                         "discount_value": {"$gt": 0}
-        #                     }
-        #                 },
-        #                 {
-        #                     "$sort": {"discount_value": -1}
-        #                 },
-        #                 {
-        #                     "$limit": limit
-        #                 },
-        #                 {
-        #                     "$project": {
-        #                         "_id": 0,
-        #                         "id": {"$toString": "$_id"},
-        #                         "discount_value": 1,
-        #                         "original_price": 1,
-        #                         "sale_price": 1,
-        #                         "product_name": 1,
-        #                         "product_image": 1,
-        #                         "brand_name": 1,
-        #                         "product_category": 1,
-        #                         "product_sub_category": 1,
-        #                         "product_gender": 1,
-        #                         "product_description": 1
-        #                     }
-        #                 }
-        #             ]
+        """Get products with largest discount difference (original_price - sale_price), sorted by discount_value descending."""
         pipeline = [
+            # Match products that have both original_price and sale_price as numbers
             {
-                "$addFields": {
-                    "original_price_num": {
-                        "$convert": {
-                            "input": {
-                                "$regexReplace": {
-                                    "input": {
-                                        "$ifNull": ["$original_price", "$price_original"]
-                                    },
-                                    "regex": "[^0-9.]",
-                                    "replacement": ""
-                                }
-                            },
-                            "to": "double",
-                            "onError": 0,
-                            "onNull": 0
-                        }
-                    },
-                    "sale_price_num": {
-                        "$convert": {
-                            "input": {
-                                "$regexReplace": {
-                                    "input": {
-                                        "$ifNull": ["$sale_price", "$price_final"]
-                                    },
-                                    "regex": "[^0-9.]",
-                                    "replacement": ""
-                                }
-                            },
-                            "to": "double",
-                            "onError": 0,
-                            "onNull": 0
-                        }
-                    }
+                "$match": {
+                    "original_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
+                    "sale_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0}
                 }
             },
+            # Calculate discount difference (original_price - sale_price)
             {
                 "$addFields": {
                     "discount_value": {
-                        "$subtract": ["$original_price_num", "$sale_price_num"]
+                        "$subtract": ["$original_price", "$sale_price"]
                     }
                 }
             },
+            # Only include products with positive discount (sale_price < original_price)
             {
                 "$match": {
                     "discount_value": {"$gt": 0}
                 }
             },
+            # Sort by discount_value descending (highest difference first)
             {
                 "$sort": {"discount_value": -1}
             },
+            # Limit results
             {
                 "$limit": limit
             },
+            # Project fields and convert _id to id
             {
                 "$project": {
                     "_id": 0,
@@ -275,15 +159,27 @@ class ProductRepository:
                     "brand_name": 1,
                     "product_category": 1,
                     "product_sub_category": 1,
-                    "product_gender": 1
+                    "product_gender": 1,
+                    "product_description": 1,
+                    "product_color": 1,
+                    "product_material": 1,
+                    "product_occasion": 1,
+                    "currency": 1,
+                    "discount": 1,
+                    "search_tags": 1,
+                    "available_sizes": 1,
+                    "product_link": 1,
+                    "scraped_at": 1
                 }
             }
         ]
-
-
+        
         items = list(products_collection.aggregate(pipeline))
         total = len(items)
+        
         return total, items
+
+ 
 
 
     @staticmethod
@@ -303,4 +199,121 @@ class ProductRepository:
                 item["id"] = str(item["_id"])
                 del item["_id"]
 
+        return total, items
+
+    @staticmethod
+    def get_filter_metadata():
+        """Get filter metadata (categories, brands, occasions) with counts from database."""
+        # Get unique categories with counts
+        category_pipeline = [
+            {"$match": {"product_category": {"$exists": True, "$ne": None}}},
+            {"$group": {"_id": "$product_category", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        categories = list(products_collection.aggregate(category_pipeline))
+        
+        # Get unique brands with counts
+        brand_pipeline = [
+            {"$match": {"brand_name": {"$exists": True, "$ne": None}}},
+            {"$group": {"_id": "$brand_name", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        brands = list(products_collection.aggregate(brand_pipeline))
+        
+        # Get unique occasions with counts
+        occasion_pipeline = [
+            {"$match": {"product_occasion": {"$exists": True, "$ne": None}}},
+            {"$group": {"_id": "$product_occasion", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        occasions = list(products_collection.aggregate(occasion_pipeline))
+        
+        return {
+            "categories": categories,
+            "brands": brands,
+            "occasions": occasions
+        }
+
+    @staticmethod
+    def get_filtered_products(
+        limit: int,
+        skip: int,
+        category: Optional[List[str]] = None,
+        brand: Optional[List[str]] = None,
+        occasion: Optional[List[str]] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        gender: Optional[str] = None
+    ):
+        """Get products with filters applied. Sorting is handled on the frontend."""
+        from bson.regex import Regex
+        
+        query = {}
+        
+        # Category filter - convert from frontend format (lowercase-dashes) back to match database
+        if category and len(category) > 0:
+            # Frontend sends values like "electronics" or "electronics-clothing"
+            # Database has values like "Electronics" or "Electronics & Clothing"
+            # Use regex to match case-insensitively, converting dashes to spaces/ampersands
+            category_patterns = []
+            for cat in category:
+                # Convert dash-separated back to space/ampersand pattern
+                pattern = cat.replace("-", "[-\\s&]+")
+                category_patterns.append(pattern)
+            category_regex_list = [Regex(pattern, "i") for pattern in category_patterns]
+            query["product_category"] = {"$in": category_regex_list}
+        
+        # Brand filter - similar conversion
+        if brand and len(brand) > 0:
+            brand_patterns = []
+            for b in brand:
+                # Convert dash-separated back to space/ampersand pattern
+                pattern = b.replace("-", "[-\\s&]+")
+                brand_patterns.append(pattern)
+            brand_regex_list = [Regex(pattern, "i") for pattern in brand_patterns]
+            query["brand_name"] = {"$in": brand_regex_list}
+        
+        # Occasion filter
+        if occasion and len(occasion) > 0:
+            occasion_patterns = []
+            for occ in occasion:
+                # Convert dash-separated back to space/ampersand pattern
+                pattern = occ.replace("-", "[-\\s&]+")
+                occasion_patterns.append(pattern)
+            occasion_regex_list = [Regex(pattern, "i") for pattern in occasion_patterns]
+            query["product_occasion"] = {"$in": occasion_regex_list}
+        
+        # Gender filter
+        if gender:
+            query["product_gender"] = Regex(gender, "i")
+        
+        # Price filter
+        price_query = {}
+        if price_min is not None:
+            price_query["$gte"] = price_min
+        if price_max is not None:
+            price_query["$lte"] = price_max
+        if price_query:
+            # Check both original_price and sale_price
+            query["$or"] = [
+                {"original_price": price_query},
+                {"sale_price": price_query}
+            ]
+        
+        # Get total count
+        total = products_collection.count_documents(query)
+        
+        # Get filtered items (no sorting - handled on frontend)
+        items = list(
+            products_collection.find(query)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        # Convert _id to id string
+        for item in items:
+            if "_id" in item:
+                item["id"] = str(item["_id"])
+                del item["_id"]
+        
         return total, items

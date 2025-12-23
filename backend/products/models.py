@@ -1,33 +1,33 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
 
 
 class Product(BaseModel):
-    id: Optional[str] = Field(alias="_id")
+    id: Optional[str] = Field(default=None)
     
-    product_link: Optional[str]
-    product_image: Optional[str]
+    product_link: Optional[str] = None
+    product_image: Optional[str] = None
     
-    brand_name: Optional[str]
-    product_name: Optional[str]         
-    product_description: Optional[str]
+    brand_name: Optional[str] = None
+    product_name: Optional[str] = None
+    product_description: Optional[str] = None
     
-    product_category: Optional[str]     
-    product_sub_category: Optional[str] 
-    product_gender: Optional[str]       
+    product_category: Optional[str] = None
+    product_sub_category: Optional[str] = None
+    product_gender: Optional[str] = None
     
-    color: Optional[List[str]]
-    material: Optional[str]
-    occasion: Optional[str]
+    product_color: Optional[List[str]] = None
+    product_material: Optional[str] = None
+    product_occasion: Optional[str] = None
     
-    original_price: Optional[str]
-    sale_price: Optional[str]
-    discount: Optional[int]
+    currency: Optional[str] = None
+    original_price: Optional[float] = None
+    sale_price: Optional[float] = None
+    discount: Optional[int] = None
+    search_tags: Optional[str] = None
+    available_sizes: Optional[List[str]] = None
 
-    available_sizes: Optional[List[str]]  # ["S", "M", "L", "XL", "XXL", "3XL"]
-
-    scraped_at: Optional[datetime]
+    scraped_at: Optional[str] = None
 
     class Config:
         populate_by_name = True

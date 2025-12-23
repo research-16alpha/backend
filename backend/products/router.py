@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from .service import ProductService
+from typing import List, Optional
 import time
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
@@ -81,3 +82,38 @@ def get_product(product_id: str):
     if not product:
         raise HTTPException(404, "Product not found")
     return product
+
+@router.get("/filter/metadata")
+def get_filter_metadata():
+    """Get filter metadata (categories, brands, occasions) with counts."""
+    return ProductService.get_filter_metadata()
+
+@router.get("/filter/products")
+def get_filtered_products(
+    limit: int = Query(100, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+    category: Optional[List[str]] = Query(None),
+    brand: Optional[List[str]] = Query(None),
+    occasion: Optional[List[str]] = Query(None),
+    price_min: Optional[float] = Query(None),
+    price_max: Optional[float] = Query(None),
+    gender: Optional[str] = Query(None)
+):
+    """Get products with filters applied. Sorting is handled on the frontend."""
+    total, items = ProductService.get_filtered_products(
+        limit=limit,
+        skip=skip,
+        category=category,
+        brand=brand,
+        occasion=occasion,
+        price_min=price_min,
+        price_max=price_max,
+        gender=gender
+    )
+    return {
+        "products": items,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "has_more": (skip + limit) < total
+    }

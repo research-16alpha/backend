@@ -108,12 +108,26 @@ class ProductRepository:
 
     @staticmethod
     def get_products_by_gender(gender: str, limit: int, skip: int):
-        """Get products filtered by gender."""
+        """Get products filtered by gender. Includes unisex and unknown genders for both men and women queries."""
         from bson.regex import Regex
+
+        # Normalize gender input to lowercase for comparison
+        gender_lower = gender.lower()
         
-        # Case-insensitive regex search for gender
-        gender_regex = Regex(gender, "i")
-        query = {"product_gender": gender_regex}
+        # Build gender query - include unisex and unknown for both men and women
+        gender_patterns = []
+        
+        # Add the requested gender
+        gender_patterns.append(Regex(gender, "i"))
+        
+        # For men or women queries, also include unisex and unknown
+        if gender_lower in ['men', 'women', 'male', 'female']:
+            gender_patterns.append(Regex("unisex", "i"))
+            gender_patterns.append(Regex("unknown", "i"))
+        
+        # Use $in with list of regex patterns for multiple matches
+        query = {"product_gender": {"$in": gender_patterns}}
+        
         # Add image filter
         query.update(ProductRepository.IMAGE_FILTER)
         
@@ -128,71 +142,6 @@ class ProductRepository:
         
         return total, items
 
-    # @staticmethod
-    # def get_best_deals(limit: int):
-    #     """Get products with largest discount difference (original_price - sale_price), sorted by discount_value descending."""
-    #     pipeline = [
-    #         # Match products that have both original_price and sale_price as numbers
-    #         {
-    #             "$match": {
-    #                 "original_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
-    #                 "sale_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0}
-    #             }
-    #         },
-    #         # Calculate discount difference (original_price - sale_price)
-    #         {
-    #             "$addFields": {
-    #                 "discount_value": {
-    #                     "$subtract": ["$original_price", "$sale_price"]
-    #                 }
-    #             }
-    #         },
-    #         # Only include products with positive discount (sale_price < original_price)
-    #         {
-    #             "$match": {
-    #                 "discount_value": {"$gt": 0}
-    #             }
-    #         },
-    #         # Sort by discount_value descending (highest difference first)
-    #         {
-    #             "$sort": {"discount_value": -1}
-    #         },
-    #         # Limit results
-    #         {
-    #             "$limit": limit
-    #         },
-    #         # Project fields and convert _id to id
-    #         {
-    #             "$project": {
-    #                 "_id": 0,
-    #                 "id": {"$toString": "$_id"},
-    #                 "discount_value": 1,
-    #                 "original_price": 1,
-    #                 "sale_price": 1,
-    #                 "product_name": 1,
-    #                 "product_image": 1,
-    #                 "brand_name": 1,
-    #                 "product_category": 1,
-    #                 "product_sub_category": 1,
-    #                 "product_gender": 1,
-    #                 "product_description": 1,
-    #                 "product_color": 1,
-    #                 "product_material": 1,
-    #                 "product_occasion": 1,
-    #                 "currency": 1,
-    #                 "discount": 1,
-    #                 "search_tags": 1,
-    #                 "available_sizes": 1,
-    #                 "product_link": 1,
-    #                 "scraped_at": 1
-    #             }
-    #         }
-    #     ]
-        
-    #     items = list(products_collection.aggregate(pipeline))
-    #     total = len(items)
-        
-    #     return total, items
 
     @staticmethod
     def get_best_deals(limit: int):
@@ -393,9 +342,13 @@ class ProductRepository:
             occasion_regex_list = [Regex(pattern, "i") for pattern in occasion_patterns]
             query["product_occasion"] = {"$in": occasion_regex_list}
         
-        # Gender filter
+        # Gender filter - include unisex and unknown for all gender queries
         if gender:
-            query["product_gender"] = Regex(gender, "i")
+            gender_patterns = [Regex(gender, "i")]
+            # Always include unisex and unknown genders
+            gender_patterns.append(Regex("unisex", "i"))
+            gender_patterns.append(Regex("unknown", "i"))
+            query["product_gender"] = {"$in": gender_patterns}
         
         # Price filter - filter by sale_price only (the price customers actually pay)
         if price_min is not None or price_max is not None:

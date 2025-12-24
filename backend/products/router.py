@@ -79,6 +79,7 @@ def get_products_by_category(category: str, limit: int = 100, skip: int = 0):
 @router.get("/gender/{gender}")
 def get_products_by_gender(gender: str, limit: int = 100, skip: int = 0):
     """Get products filtered by gender."""
+
     total, items = ProductService.get_products_by_gender(gender, limit, skip)
     return {
         "products": items,

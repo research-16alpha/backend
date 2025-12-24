@@ -89,13 +89,6 @@ def get_products_by_gender(gender: str, limit: int = 100, skip: int = 0):
         "gender": gender
     }
 
-@router.get("/{product_id}")
-def get_product(product_id: str):
-    product = ProductService.get_product_by_id(product_id)
-    if not product:
-        raise HTTPException(404, "Product not found")
-    return product
-
 @router.get("/filter/metadata")
 def get_filter_metadata():
     """Get filter metadata (categories, brands, occasions) with counts."""
@@ -130,3 +123,67 @@ def get_filtered_products(
         "skip": skip,
         "has_more": (skip + limit) < total
     }
+
+@router.get("/search")
+def search_products(
+    q: str = Query(..., description="Search query string"),
+    limit: int = Query(20, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+    category: Optional[List[str]] = Query(None),
+    brand: Optional[List[str]] = Query(None),
+    occasion: Optional[List[str]] = Query(None),
+    price_min: Optional[float] = Query(None),
+    price_max: Optional[float] = Query(None),
+    gender: Optional[str] = Query(None)
+):
+    """
+    Search products using MongoDB Atlas Search with fuzzy matching.
+    Searches across all product fields and supports filters.
+    """
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="Search query cannot be empty")
+    
+    total, items = ProductService.search_products(
+        query=q.strip(),
+        limit=limit,
+        skip=skip,
+        category=category,
+        brand=brand,
+        occasion=occasion,
+        price_min=price_min,
+        price_max=price_max,
+        gender=gender
+    )
+    return {
+        "products": items,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "has_more": (skip + limit) < total,
+        "query": q
+    }
+
+@router.get("/search/suggestions")
+def get_search_suggestions(
+    q: str = Query(..., description="Partial search query for autocomplete"),
+    limit: int = Query(10, ge=1, le=50)
+):
+    """
+    Get search suggestions/autocomplete based on partial query.
+    Returns suggested search terms for autocomplete functionality.
+    """
+    if not q or not q.strip():
+        return {"suggestions": []}
+    
+    suggestions = ProductService.get_search_suggestions(q.strip(), limit)
+    return {
+        "suggestions": suggestions,
+        "query": q
+    }
+
+@router.get("/{product_id}")
+def get_product(product_id: str):
+    product = ProductService.get_product_by_id(product_id)
+    if not product:
+        raise HTTPException(404, "Product not found")
+    return product

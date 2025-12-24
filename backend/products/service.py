@@ -160,3 +160,35 @@ class ProductService:
         )
         transformed = [p for p in map(transform_product, items) if p]
         return total, transformed
+
+    @staticmethod
+    def search_products(
+        query: str,
+        limit: int = 20,
+        skip: int = 0,
+        category: Optional[List[str]] = None,
+        brand: Optional[List[str]] = None,
+        occasion: Optional[List[str]] = None,
+        price_min: Optional[float] = None,
+        price_max: Optional[float] = None,
+        gender: Optional[str] = None
+    ):
+        """Search products using MongoDB Atlas Search."""
+        total, items = ProductRepository.search_products(
+            query=query,
+            limit=limit,
+            skip=skip,
+            category=category,
+            brand=brand,
+            occasion=occasion,
+            price_min=price_min,
+            price_max=price_max,
+            gender=gender
+        )
+        transformed = [p for p in map(transform_product, items) if p]
+        return total, transformed
+
+    @staticmethod
+    def get_search_suggestions(query: str, limit: int = 10):
+        """Get search suggestions/autocomplete."""
+        return ProductRepository.get_search_suggestions(query, limit)

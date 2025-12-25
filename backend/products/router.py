@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from .service import ProductService
 from typing import List, Optional
 import time
@@ -180,6 +181,21 @@ def get_search_suggestions(
     return {
         "suggestions": suggestions,
         "query": q
+    }
+
+class ProductLinksRequest(BaseModel):
+    product_links: List[str]
+
+@router.post("/by-links")
+def get_products_by_links(request: ProductLinksRequest):
+    """Get products by product_link values, returning them in the exact order provided."""
+    if not request.product_links:
+        return {"products": []}
+    
+    items = ProductService.get_products_by_links(request.product_links)
+    return {
+        "products": items,
+        "total": len(items)
     }
 
 @router.get("/{product_id}")

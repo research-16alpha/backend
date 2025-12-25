@@ -192,3 +192,10 @@ class ProductService:
     def get_search_suggestions(query: str, limit: int = 10):
         """Get search suggestions/autocomplete."""
         return ProductRepository.get_search_suggestions(query, limit)
+
+    @staticmethod
+    def get_products_by_links(product_links: List[str]):
+        """Get products by product_link values, preserving order."""
+        items = ProductRepository.get_products_by_links(product_links)
+        transformed = [p for p in map(transform_product, items) if p]
+        return transformed

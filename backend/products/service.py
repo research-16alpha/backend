@@ -39,7 +39,7 @@ class ProductService:
 
     @staticmethod
     def get_products_by_gender(gender: str, limit: int, skip: int):
-        total, items = ProductRepository.get_products_by_gender(gender, limit, skip)
+        total, items = ProductRepository.get_products_by_gender_with_brand_sort(gender, limit, skip)
         transformed = [p for p in map(transform_product, items) if p]
         return total, transformed
 

@@ -16,17 +16,181 @@ class ProductRepository:
             "$regex": "^http"
         }
     }
+    
+    @staticmethod
+    def _normalize_sizes(sizes) -> Optional[List[str]]:
+        """
+        Normalize available_sizes from various formats to a list of strings.
+        Handles: None, empty string, list, comma-separated string.
+        """
+        if sizes is None:
+            return None
+        if isinstance(sizes, list):
+            # Already a list, return as is (filter out empty strings)
+            return [str(s).strip() for s in sizes if str(s).strip()]
+        if isinstance(sizes, str):
+            # Comma-separated string, split and clean
+            if not sizes.strip():
+                return None
+            # Filter out "See all sizes" and other non-size values
+            cleaned = [s.strip() for s in sizes.split(',') if s.strip() and s.strip().lower() != 'see all sizes']
+            return cleaned if cleaned else None
+        # For any other type, try to convert
+        try:
+            return [str(sizes).strip()] if str(sizes).strip() else None
+        except:
+            return None
+    
+    @staticmethod
+    def _normalize_colors(colors) -> Optional[List[str]]:
+        """
+        Normalize product_color from various formats to a list of strings.
+        Handles: None, empty string, list, comma-separated string.
+        """
+        if colors is None:
+            return None
+        if isinstance(colors, list):
+            # Already a list, return as is (filter out empty strings)
+            return [str(c).strip() for c in colors if str(c).strip()]
+        if isinstance(colors, str):
+            # Comma-separated string, split and clean
+            if not colors.strip():
+                return None
+            return [c.strip() for c in colors.split(',') if c.strip()]
+        # For any other type, try to convert
+        try:
+            return [str(colors).strip()] if str(colors).strip() else None
+        except:
+            return None
 
     @staticmethod
     def get_top_deals(limit: int, skip: int = 0):
-        # DUMMY IMPLEMENTATION
-        # CHANGE THIS LATER
-
-        # Get the total count without pulling data into Python
-        total_count = products_collection.count_documents(ProductRepository.IMAGE_FILTER)
+        """
+        Get top deals filtered by specific luxury brands.
+        Includes common brand name variations for better matching.
+        """
+        # Define the list of luxury brands to filter by, including variations
+        brand_names = [
+            # Brunello Cucinelli
+            "Brunello Cucinelli",
+            
+            # Brioni
+            "Brioni",
+            
+            # Loro Piana
+            "Loro Piana",
+            
+            # Berluti
+            "Berluti",
+            
+            # Zegna / Ermenegildo Zegna
+            "Zegna",
+            "Ermenegildo Zegna",
+            "ERMENEGILDO ZEGNA",
+            
+            # Tom Ford / TOM FORD
+            "Tom Ford",
+            "TOM FORD",
+            
+            # Kiton
+            "Kiton",
+            "KITON",
+            
+            # Ralph Lauren Purple Label
+            "Ralph Lauren Purple Label",
+            "RALPH LAUREN PURPLE LABEL",
+            
+            # Polo Ralph Lauren
+            "Polo Ralph Lauren",
+            "POLO RALPH LAUREN",
+            
+            # Salvatore Ferragamo / Ferragamo
+            "Salvatore Ferragamo",
+            "Ferragamo",
+            "FERRAGAMO",
+            
+            # Canali
+            "Canali",
+            "CANALI",
+            
+            # Stefano Ricci
+            "Stefano Ricci",
+            "STEFANO RICCI",
+            
+            # Bottega Veneta
+            "Bottega Veneta",
+            "BOTTEGA VENETA",
+            
+            # Hermes / Hermès
+            "Hermes",
+            "Hermès",
+            "HERMÈS",
+            
+            # Chanel
+            "Chanel",
+            "CHANEL",
+            
+            # Zimmerman / Zimmermann
+            "Zimmerman",
+            "Zimmermann",
+            "ZIMMERMANN",
+            
+            # Christopher Esber
+            "Christopher Esber",
+            "CHRISTOPHER ESBER",
+            
+            # Ellie Saab / Elie Saab
+            "Ellie Saab",
+            "Elie Saab",
+            "ELIE SAAB",
+            
+            # Valentino / Valentino Garavani
+            "Valentino",
+            "Valentino Garavani",
+            "VALENTINO",
+            
+            # Dolce & Gabbana / Dolce&Gabbana
+            "Dolce & Gabbana",
+            "Dolce&Gabbana",
+            "DOLCE & GABBANA",
+            "DOLCE&GABBANA",
+            
+            # Etro / ETRO
+            "Etro",
+            "ETRO",
+            
+            # Oscar de la Renta
+            "Oscar de la Renta",
+            "OSCAR DE LA RENTA",
+            
+            # Givenchy
+            "Givenchy",
+            "GIVENCHY",
+            
+            # Carolina Herrera
+            "Carolina Herrera",
+            "CAROLINA HERRERA",
+            
+            # Gucci
+            "Gucci",
+            "GUCCI",
+            
+            # Louis Vuitton
+            "Louis Vuitton",
+            "LOUIS VUITTON"
+        ]
+        
+        # Build query with brand filter and image filter
+        query = {
+            "brand_name": {"$in": brand_names}
+        }
+        query.update(ProductRepository.IMAGE_FILTER)
+        
+        # Get the total count
+        total_count = products_collection.count_documents(query)
         
         # Fetch only the slice needed
-        items = list(products_collection.find(ProductRepository.IMAGE_FILTER).skip(skip).limit(limit))
+        items = list(products_collection.find(query).skip(skip).limit(limit))
         
         validated_items = []
         for item in items:
@@ -34,14 +198,22 @@ class ProductRepository:
             if "_id" in item:
                 item["id"] = str(item.pop("_id"))
             
-            # 2. Ensure all fields have defaults if missing
-            # Set defaults for fields that might be missing
+            # 2. Normalize fields that might be in different formats
+            # Normalize available_sizes (convert string to list if needed)
+            if "available_sizes" in item:
+                item["available_sizes"] = ProductRepository._normalize_sizes(item["available_sizes"])
+            else:
+                item["available_sizes"] = None
+            
+            # Normalize product_color (convert string to list if needed)
+            if "product_color" in item:
+                item["product_color"] = ProductRepository._normalize_colors(item["product_color"])
+            else:
+                item["product_color"] = None
+            
+            # Set defaults for other optional fields
             if "product_description" not in item:
                 item["product_description"] = None
-            if "available_sizes" not in item:
-                item["available_sizes"] = None
-            if "product_color" not in item:
-                item["product_color"] = None
             
             # 3. Validation: This is where Pydantic checks the data
             # If the data doesn't match ProductSchema, it raises a ValidationError
@@ -54,7 +226,7 @@ class ProductRepository:
                 print(f"Error validating product: {e}")
                 continue
             
-        return len(validated_items), validated_items
+        return total_count, validated_items
 
     @staticmethod
     def get_products(limit: int, skip: int):
@@ -108,24 +280,17 @@ class ProductRepository:
 
     @staticmethod
     def get_products_by_gender(gender: str, limit: int, skip: int):
-        """Get products filtered by gender. Includes unisex and unknown genders for both men and women queries."""
+        """Get products filtered by gender. Only matches exact gender (no unisex or unknown)."""
         from bson.regex import Regex
+        print("old api hit")
 
-        # Normalize gender input to lowercase for comparison
-        gender_lower = gender.lower()
-        
-        # Build gender query - include unisex and unknown for both men and women
+        # Build gender query - only match the exact gender
         gender_patterns = []
         
-        # Add the requested gender
+        # Add the requested gender only
         gender_patterns.append(Regex(gender, "i"))
         
-        # For men or women queries, also include unisex and unknown
-        if gender_lower in ['men', 'women', 'male', 'female']:
-            gender_patterns.append(Regex("unisex", "i"))
-            gender_patterns.append(Regex("unknown", "i"))
-        
-        # Use $in with list of regex patterns for multiple matches
+        # Use $in with list of regex patterns for exact gender match only
         query = {"product_gender": {"$in": gender_patterns}}
         
         # Add image filter
@@ -133,6 +298,117 @@ class ProductRepository:
         
         total = products_collection.count_documents(query)
         items = list(products_collection.find(query).skip(skip).limit(limit))
+        
+        # Convert _id to id string
+        for item in items:
+            if "_id" in item:
+                item["id"] = str(item["_id"])
+                del item["_id"]
+        
+        return total, items
+
+    @staticmethod
+    def get_products_by_gender_with_brand_sort(gender: str, limit: int, skip: int):
+        """Get products filtered by gender, sorted by brand order with randomization within each brand group."""
+        from bson.regex import Regex
+        import random
+        print("new api hit")
+
+        # Brand order list (same as in get_products_with_custom_sort)
+        brand_order = ['Brioni', 'Brunello Cucinelli', 'Zegna', 'TOM FORD', 'Bottega Veneta', 'Canali', 'Polo Ralph Lauren', 'John Lobb', 'Johnstons Of Elgin', 'Kiton', 'LOEWE', 'N.Peal', 'Prada', 'Saint Laurent', 'Ralph Lauren Purple Label', 'Salvatore Ferragamo', 'Santoni', 'Zimmermann', 'FARM Rio', 'Chrome Hearts', 'Alexander McQueen', 'Valentino', 'Dolce & Gabbana', 'Dolce&Gabbana', 'Christian Louboutin', 'Maje', 'Sandro Paris', 'Missoni', 'Johanna Ortiz', 'Gabriela Hearst', 'Cartier', 'Marina Rinaldi', 'Christopher Esber', 'Oscar de la Renta', 'Derek Rose', 'Falke', 'Etro', 'ETRO', 'Balenciaga', 'Bally', 'JACQUEMUS', 'Jacquemus', 'Giorgio Armani', 'Canada Goose', 'AMI Paris', 'Yves Salomon', 'Corneliani', 'MACKAGE', 'AG Jeans', 'Fear of God', 'Orlebar Brown', 'EVISU', 'BAPE', 'A BATHING APE®', 'AAPE BY *A BATHING APE®', 'Lanvin', 'Valentino Garavani', 'Versace', "TOD's", "Tod's", 'AllSaints', 'ALLSAINTS', 'Balmain', 'Burberry', 'Chloé', 'Common Projects', 'Fleur du Mal', 'Fendi', 'FERRAGAMO', 'Ferragamo', 'Gucci', 'Hanro', 'Helmut Lang', 'Herno', 'Heron Preston', 'Hogan', 'Isabel Marant', 'Isabel Marant Etoile', 'ISSEY MIYAKE', 'Issey Miyake', 'J.Lindeberg', 'Jimmy Choo', 'Kenzo', 'Ksubi', 'lululemon', 'Mackage', 'Lladró', 'Maison Margiela', 'Marc Jacobs', 'Palm Angels', 'Palm Angels Kids', 'Paige', 'PAIGE', 'Moschino', 'Off-White', 'Off-White Kids', 'Rick Owens', 'Rick Owens DRKSHDW', 'Rick Owens Lilies', 'Rick Owens X Champion', 'RHUDE', 'Rhude', 'Roberto Cavalli', 'Theory', 'Stüssy', 'Stone Island', 'Vilebrequin', "Church's", 'Comme des Garçons', 'Comme Des Garçons', 'Acne Studios', 'Acqua di Parma', 'A-COLD-WALL*', 'Alexander Wang', 'alexanderwang.t', 'alice + olivia', 'Alice+Olivia', 'adidas Yeezy', 'Balmain Kids', 'BAPE BLACK *A BATHING APE®', 'BAPY BY *A BATHING APE®', 'Barbour', 'Barbour International', 'Birkenstock', 'BIRKENSTOCK 1774', 'DOMREBEL', 'VETEMENTS', 'Armani', 'Ea7 Emporio Armani', 'Ed Hardy', 'Fear Of God', 'FEAR OF GOD ESSENTIALS', 'Fear of God ESSENTIALS', 'Fear of God Athletics', 'FEAR OF GOD ESSENTIALS KIDS', 'Fendi Kids', 'FRAME', 'Giuseppe Zanotti', 'Givenchy', 'Gianvito Rossi', 'La Perla', 'Eileen Fisher', 'Elie Tahari', 'Eleventy', 'Emporio Armani', 'Dita Eyewear', 'TOM FORD Eyewear', 'Cartier Eyewear', 'Dolce & Gabbana Eyewear', 'Prada Eyewear', 'Gucci Eyewear', 'Alexander McQueen Eyewear', 'Balenciaga Eyewear', 'Chloé Eyewear', 'Balmain Eyewear', 'Palm Angels Eyewear', 'Burberry Eyewear', 'Givenchy Eyewear', 'Jimmy Choo Eyewear', 'Off-White Eyewear', 'Versace Eyewear', 'Hermès\xa0Pre-Owned', 'CHANEL Pre-Owned', 'Bottega Veneta Pre-Owned', 'Christian Dior Pre-Owned', 'Balenciaga Pre-Owned', 'Celine Pre-Owned', 'Fendi Pre-Owned', 'Goyard Pre-Owned', 'Gucci Pre-Owned', 'Loewe Pre-Owned', 'Louis Vuitton Pre-Owned', 'Prada Pre-Owned', 'Versace Pre-Owned', 'MEMO PARIS', 'Bond No. 9', 'Bobbi Brown', 'Estée Lauder', 'Jo Malone London', 'La Prairie', 'Kerastase', "Kiehl's", 'Lancôme', 'Prada Beauty']
+        
+        # Build gender query - only match the exact gender (no unisex or unknown)
+        gender_patterns = []
+        
+        # Add the requested gender only
+        gender_patterns.append(Regex(gender, "i"))
+        
+        # Build match filter - only exact gender match
+        match_filter = {"product_gender": {"$in": gender_patterns}}
+        match_filter.update(ProductRepository.IMAGE_FILTER)
+        
+        # Get total count
+        total = products_collection.count_documents(match_filter)
+        
+        # Generate a random seed for consistent randomization per request
+        # This ensures products within the same brand are randomly mixed
+        random_seed = random.randint(0, 1000000)
+        
+        # Build aggregation pipeline
+        pipeline = [
+            # Match products by gender and image filter
+            {"$match": match_filter},
+            {
+                # Add brand index (position in brand_order list)
+                "$addFields": {
+                    "brand_index": {
+                        "$indexOfArray": [brand_order, "$brand_name"]
+                    },
+                    # Add a random value for mixing within brand groups
+                    # Using ObjectId hash + random seed for deterministic randomization
+                    "random_value": {
+                        "$mod": [
+                            {
+                                "$add": [
+                                    {"$toInt": {"$substr": [{"$toString": "$_id"}, 0, 8]}},
+                                    random_seed
+                                ]
+                            },
+                            10000  # Random value 0-9999 for mixing
+                        ]
+                    }
+                }
+            },
+            {
+                # Create sort priority: brand_index * 10000 + random_value
+                # This ensures brands are ordered, but products within each brand are mixed
+                "$addFields": {
+                    "sort_priority": {
+                        "$cond": {
+                            "if": {"$eq": ["$brand_index", -1]},
+                            "then": 999999999,  # Brands not in list go to end
+                            "else": {
+                                "$add": [
+                                    {"$multiply": ["$brand_index", 10000]},  # Brand priority (main sort)
+                                    "$random_value"  # Random mixing within brand (0-9999)
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+            # Sort by priority (brand order with randomization)
+            {"$sort": {"sort_priority": 1}},
+            # Pagination
+            {"$skip": skip},
+            {"$limit": limit},
+            # Project fields needed for transform_product
+            {
+                "$project": {
+                    "_id": 1,
+                    "product_link": 1,
+                    "product_image": 1,
+                    "brand_name": 1,
+                    "product_name": 1,
+                    "product_description": 1,
+                    "product_category": 1,
+                    "product_sub_category": 1,
+                    "product_gender": 1,
+                    "product_color": 1,
+                    "product_material": 1,
+                    "product_occasion": 1,
+                    "currency": 1,
+                    "original_price": 1,
+                    "sale_price": 1,
+                    "discount": 1,
+                    "search_tags": 1,
+                    "available_sizes": 1,
+                    "scraped_at": 1
+                }
+            }
+        ]
+        
+        items = list(products_collection.aggregate(pipeline))
         
         # Convert _id to id string
         for item in items:
@@ -342,12 +618,9 @@ class ProductRepository:
             occasion_regex_list = [Regex(pattern, "i") for pattern in occasion_patterns]
             query["product_occasion"] = {"$in": occasion_regex_list}
         
-        # Gender filter - include unisex and unknown for all gender queries
+        # Gender filter - only match exact gender (no unisex or unknown)
         if gender:
             gender_patterns = [Regex(gender, "i")]
-            # Always include unisex and unknown genders
-            gender_patterns.append(Regex("unisex", "i"))
-            gender_patterns.append(Regex("unknown", "i"))
             query["product_gender"] = {"$in": gender_patterns}
         
         # Price filter - filter by sale_price only (the price customers actually pay)

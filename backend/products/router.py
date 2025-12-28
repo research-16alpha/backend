@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api/products", tags=["Products"])
 @router.get("/top-deals")
 def get_top_deals(limit: int = 4, skip: int = 0):
     total, items= ProductService.get_top_deals(limit, skip)
+    print("api hit successfully")
     return {
         "products": items,
         "total": total,

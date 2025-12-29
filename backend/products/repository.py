@@ -16,7 +16,7 @@ class ProductRepository:
             "$regex": "^http"
         }
     }
-    
+
     @staticmethod
     def _normalize_sizes(sizes) -> Optional[List[str]]:
         """
@@ -163,10 +163,6 @@ class ProductRepository:
             "Oscar de la Renta",
             "OSCAR DE LA RENTA",
             
-            # Givenchy
-            "Givenchy",
-            "GIVENCHY",
-            
             # Carolina Herrera
             "Carolina Herrera",
             "CAROLINA HERRERA",
@@ -189,8 +185,37 @@ class ProductRepository:
         # Get the total count
         total_count = products_collection.count_documents(query)
         
-        # Fetch only the slice needed
-        items = list(products_collection.find(query).skip(skip).limit(limit))
+        # Use aggregation pipeline to calculate discount and sort by it
+        # Discount = original_price - sale_price (largest discount first)
+        pipeline = [
+            {"$match": query},
+            {
+                "$addFields": {
+                    "discount_amount": {
+                        "$subtract": [
+                            {"$ifNull": ["$original_price", 0]},
+                            {"$ifNull": ["$sale_price", 0]}
+                        ]
+                    }
+                }
+            },
+            {
+                "$match": {
+                    "discount_amount": {"$gt": 0}  # Only include products with positive discount
+                }
+            },
+            {"$sort": {"discount_amount": -1}},  # Sort by discount descending
+            {"$skip": skip},
+            {"$limit": limit},
+            {
+                "$project": {
+                    "discount_amount": 0  # Remove the computed field from final output
+                }
+            }
+        ]
+        
+        # Fetch products sorted by discount
+        items = list(products_collection.aggregate(pipeline))
         
         validated_items = []
         for item in items:
@@ -230,15 +255,153 @@ class ProductRepository:
 
     @staticmethod
     def get_products(limit: int, skip: int):
-        # DUMMY IMPLEMENTATION
-        # CHANGE THIS LATER
-        total = products_collection.count_documents(ProductRepository.IMAGE_FILTER)
-        items = list(products_collection.find(ProductRepository.IMAGE_FILTER).skip(skip).limit(limit))
+        """
+        Get products sorted by price (low to high) with randomization.
+        Products are grouped into price buckets and randomized within each bucket
+        to maintain price ordering while adding variety.
+        Excludes products containing certain keywords in product_name or product_description.
+        """
+        import random
+        from bson.regex import Regex
+        
+        # Keywords to filter out from product names and descriptions
+        # Products containing any of these keywords will be excluded
+        excluded_keywords = [
+            "diamond",
+            "ring",
+            "gold",
+            "coin",
+            "furniture",
+            "streamdale",
+        ]
+        
+        # Generate a random seed for consistent randomization per request
+        random_seed = random.randint(0, 1000000)
+        
+        # Build match filter - only products with valid sale_price and images
+        match_filter = {
+            "sale_price": {
+                "$exists": True,
+                "$ne": None,
+                "$type": "number",
+                "$gt": 0
+            }
+        }
+        match_filter.update(ProductRepository.IMAGE_FILTER)
+        
+        # Add filter to exclude products with certain keywords in product_name or product_description
+        # Use $nor to exclude products where product_name OR product_description contains any excluded keyword
+        keyword_filters = []
+        for keyword in excluded_keywords:
+            keyword_regex = Regex(keyword, "i")  # Case-insensitive
+            keyword_filters.append({
+                "$or": [
+                    {"product_name": keyword_regex},
+                    {"product_description": keyword_regex}
+                ]
+            })
+        
+        if keyword_filters:
+            match_filter["$nor"] = keyword_filters
+        
+        # Get total count
+        total = products_collection.count_documents(match_filter)
+        
+        # Build aggregation pipeline
+        # Price bucket size: group products into $200 buckets for randomization
+        # This allows products within similar price ranges to be randomized
+        pipeline = [
+            # Match products with valid sale_price and images
+            {"$match": match_filter},
+            {
+                # Add price bucket and random value for sorting
+                "$addFields": {
+                    # Group products into price buckets (e.g., 0-199, 200-399, etc.)
+                    # Using $200 buckets to maintain price ordering while allowing randomization
+                    "price_bucket": {
+                        "$floor": {
+                            "$divide": ["$sale_price", 1000]
+                        }
+                    },
+                    # Generate a random value based on ObjectId + seed
+                    # This creates randomization within price buckets that varies per request
+                    # Use sale_price combined with ObjectId string length for variation
+                    # This avoids hex parsing and uses only basic numeric operations
+                    "random_value": {
+                        "$mod": [
+                            {
+                                "$add": [
+                                    {
+                                        "$mod": [
+                                            {
+                                                "$add": [
+                                                    {"$multiply": ["$sale_price", 0.01]},  # Use price for variation
+                                                    {"$strLenCP": {"$toString": "$_id"}}  # ObjectId string length
+                                                ]
+                                            },
+                                            10000
+                                        ]
+                                    },
+                                    {"$literal": random_seed}  # Random seed for per-request variation
+                                ]
+                            },
+                            10000  # Random value 0-9999 for mixing within bucket
+                        ]
+                    }
+                }
+            },
+            {
+                # Create sort priority: price_bucket * 10000 + random_value
+                # This ensures price ordering (low to high) with randomization within buckets
+                "$addFields": {
+                    "sort_priority": {
+                        "$add": [
+                            {"$multiply": ["$price_bucket", 10000]},  # Price bucket (main sort)
+                            "$random_value"  # Random mixing within bucket (0-9999)
+                        ]
+                    }
+                }
+            },
+            # Sort by priority (price buckets ascending with randomization)
+            {"$sort": {"sort_priority": -1}},
+            # Pagination
+            {"$skip": skip},
+            {"$limit": limit},
+            # Project all fields needed
+            {
+                "$project": {
+                    "_id": 1,
+                    "product_link": 1,
+                    "product_image": 1,
+                    "brand_name": 1,
+                    "product_name": 1,
+                    "product_description": 1,
+                    "product_category": 1,
+                    "product_sub_category": 1,
+                    "product_gender": 1,
+                    "product_color": 1,
+                    "product_material": 1,
+                    "product_occasion": 1,
+                    "currency": 1,
+                    "original_price": 1,
+                    "sale_price": 1,
+                    "discount": 1,
+                    "search_tags": 1,
+                    "available_sizes": 1,
+                    "scraped_at": 1
+                }
+            }
+        ]
+        
+        # Execute aggregation
+        items = list(products_collection.aggregate(pipeline))
+        
         # Convert _id to id string
         for item in items:
             if "_id" in item:
                 item["id"] = str(item["_id"])
                 del item["_id"]
+        
         return total, items
 
     @staticmethod
@@ -247,65 +410,9 @@ class ProductRepository:
         query.update(ProductRepository.IMAGE_FILTER)
         item = products_collection.find_one(query)
         if item and "_id" in item:
-            item["id"] = str(item["_id"])
-            del item["_id"]
+                item["id"] = str(item["_id"])
+                del item["_id"]
         return item
-
-    @staticmethod
-    def get_products_by_category(category: str, limit: int, skip: int):
-        """Get products filtered by category name matching product_name or product_description."""
-        from bson.regex import Regex
-        
-        # Case-insensitive regex search for category in product_name or product_description
-        category_regex = Regex(category, "i")
-        query = {
-            "$or": [
-                {"product_name": category_regex},
-                {"product_description": category_regex}
-            ]
-        }
-        # Add image filter
-        query.update(ProductRepository.IMAGE_FILTER)
-        
-        total = products_collection.count_documents(query)
-        items = list(products_collection.find(query).skip(skip).limit(limit))
-        
-        # Convert _id to id string
-        for item in items:
-            if "_id" in item:
-                item["id"] = str(item["_id"])
-                del item["_id"]
-        
-        return total, items
-
-    @staticmethod
-    def get_products_by_gender(gender: str, limit: int, skip: int):
-        """Get products filtered by gender. Only matches exact gender (no unisex or unknown)."""
-        from bson.regex import Regex
-        print("old api hit")
-
-        # Build gender query - only match the exact gender
-        gender_patterns = []
-        
-        # Add the requested gender only
-        gender_patterns.append(Regex(gender, "i"))
-        
-        # Use $in with list of regex patterns for exact gender match only
-        query = {"product_gender": {"$in": gender_patterns}}
-        
-        # Add image filter
-        query.update(ProductRepository.IMAGE_FILTER)
-        
-        total = products_collection.count_documents(query)
-        items = list(products_collection.find(query).skip(skip).limit(limit))
-        
-        # Convert _id to id string
-        for item in items:
-            if "_id" in item:
-                item["id"] = str(item["_id"])
-                del item["_id"]
-        
-        return total, items
 
     @staticmethod
     def get_products_by_gender_with_brand_sort(gender: str, limit: int, skip: int):
@@ -314,7 +421,7 @@ class ProductRepository:
         import random
         print("new api hit")
 
-        # Brand order list (same as in get_products_with_custom_sort)
+        # Brand order list for sorting
         brand_order = ['Brioni', 'Brunello Cucinelli', 'Zegna', 'TOM FORD', 'Bottega Veneta', 'Canali', 'Polo Ralph Lauren', 'John Lobb', 'Johnstons Of Elgin', 'Kiton', 'LOEWE', 'N.Peal', 'Prada', 'Saint Laurent', 'Ralph Lauren Purple Label', 'Salvatore Ferragamo', 'Santoni', 'Zimmermann', 'FARM Rio', 'Chrome Hearts', 'Alexander McQueen', 'Valentino', 'Dolce & Gabbana', 'Dolce&Gabbana', 'Christian Louboutin', 'Maje', 'Sandro Paris', 'Missoni', 'Johanna Ortiz', 'Gabriela Hearst', 'Cartier', 'Marina Rinaldi', 'Christopher Esber', 'Oscar de la Renta', 'Derek Rose', 'Falke', 'Etro', 'ETRO', 'Balenciaga', 'Bally', 'JACQUEMUS', 'Jacquemus', 'Giorgio Armani', 'Canada Goose', 'AMI Paris', 'Yves Salomon', 'Corneliani', 'MACKAGE', 'AG Jeans', 'Fear of God', 'Orlebar Brown', 'EVISU', 'BAPE', 'A BATHING APE®', 'AAPE BY *A BATHING APE®', 'Lanvin', 'Valentino Garavani', 'Versace', "TOD's", "Tod's", 'AllSaints', 'ALLSAINTS', 'Balmain', 'Burberry', 'Chloé', 'Common Projects', 'Fleur du Mal', 'Fendi', 'FERRAGAMO', 'Ferragamo', 'Gucci', 'Hanro', 'Helmut Lang', 'Herno', 'Heron Preston', 'Hogan', 'Isabel Marant', 'Isabel Marant Etoile', 'ISSEY MIYAKE', 'Issey Miyake', 'J.Lindeberg', 'Jimmy Choo', 'Kenzo', 'Ksubi', 'lululemon', 'Mackage', 'Lladró', 'Maison Margiela', 'Marc Jacobs', 'Palm Angels', 'Palm Angels Kids', 'Paige', 'PAIGE', 'Moschino', 'Off-White', 'Off-White Kids', 'Rick Owens', 'Rick Owens DRKSHDW', 'Rick Owens Lilies', 'Rick Owens X Champion', 'RHUDE', 'Rhude', 'Roberto Cavalli', 'Theory', 'Stüssy', 'Stone Island', 'Vilebrequin', "Church's", 'Comme des Garçons', 'Comme Des Garçons', 'Acne Studios', 'Acqua di Parma', 'A-COLD-WALL*', 'Alexander Wang', 'alexanderwang.t', 'alice + olivia', 'Alice+Olivia', 'adidas Yeezy', 'Balmain Kids', 'BAPE BLACK *A BATHING APE®', 'BAPY BY *A BATHING APE®', 'Barbour', 'Barbour International', 'Birkenstock', 'BIRKENSTOCK 1774', 'DOMREBEL', 'VETEMENTS', 'Armani', 'Ea7 Emporio Armani', 'Ed Hardy', 'Fear Of God', 'FEAR OF GOD ESSENTIALS', 'Fear of God ESSENTIALS', 'Fear of God Athletics', 'FEAR OF GOD ESSENTIALS KIDS', 'Fendi Kids', 'FRAME', 'Giuseppe Zanotti', 'Givenchy', 'Gianvito Rossi', 'La Perla', 'Eileen Fisher', 'Elie Tahari', 'Eleventy', 'Emporio Armani', 'Dita Eyewear', 'TOM FORD Eyewear', 'Cartier Eyewear', 'Dolce & Gabbana Eyewear', 'Prada Eyewear', 'Gucci Eyewear', 'Alexander McQueen Eyewear', 'Balenciaga Eyewear', 'Chloé Eyewear', 'Balmain Eyewear', 'Palm Angels Eyewear', 'Burberry Eyewear', 'Givenchy Eyewear', 'Jimmy Choo Eyewear', 'Off-White Eyewear', 'Versace Eyewear', 'Hermès\xa0Pre-Owned', 'CHANEL Pre-Owned', 'Bottega Veneta Pre-Owned', 'Christian Dior Pre-Owned', 'Balenciaga Pre-Owned', 'Celine Pre-Owned', 'Fendi Pre-Owned', 'Goyard Pre-Owned', 'Gucci Pre-Owned', 'Loewe Pre-Owned', 'Louis Vuitton Pre-Owned', 'Prada Pre-Owned', 'Versace Pre-Owned', 'MEMO PARIS', 'Bond No. 9', 'Bobbi Brown', 'Estée Lauder', 'Jo Malone London', 'La Prairie', 'Kerastase', "Kiehl's", 'Lancôme', 'Prada Beauty']
         
         # Build gender query - only match the exact gender (no unisex or unknown)
@@ -417,14 +524,10 @@ class ProductRepository:
                 del item["_id"]
         
         return total, items
-
-
     @staticmethod
-    def get_best_deals(limit: int):
-        """
-        Get products with largest discount difference, 
-        optionally filtered by a list of brand names.
-        """
+    def get_latest_products(limit: int, skip: int):
+        """Get newest products sorted by scraped_at (or _id fallback) descending, filtered by luxury brands."""
+        # Define the list of luxury brands to filter by
         brand_names = [
             "Brioni", "Brunello Cucinelli", "Zegna", "Bottega Veneta", 
             "Canali", "Polo Ralph Lauren", "John Lobb", "Johnstons Of Elgin", "Kiton", 
@@ -437,7 +540,7 @@ class ProductRepository:
             "Bally", "JACQUEMUS", "Jacquemus", "Giorgio Armani", "Canada Goose", 
             "AMI Paris", "Yves Salomon", "Corneliani", "MACKAGE", "AG Jeans", 
             "Fear of God", "Orlebar Brown", "EVISU", "BAPE", "A BATHING APE®", 
-            "AAPE BY *A BATHING APE®", "Lanvin" , "Versace", 
+            "AAPE BY *A BATHING APE®", "Lanvin", "Versace", 
             "TOD's", "Tod's", "AllSaints", "ALLSAINTS", "Balmain", "Burberry", 
             "Chloé", "Common Projects", "Fleur du Mal", "Fendi", "FERRAGAMO", 
             "Ferragamo", "Gucci", "Hanro", "Helmut Lang", "Herno", "Heron Preston", 
@@ -445,89 +548,24 @@ class ProductRepository:
             "Issey Miyake", "J.Lindeberg", "Jimmy Choo", "Kenzo", "Ksubi", "lululemon", 
             "Mackage", "Lladró", "Maison Margiela", "Marc Jacobs", "Palm Angels", 
             "Palm Angels Kids", "Paige", "PAIGE", "Moschino", "Off-White", 
-            "Off-White Kids" , "RHUDE", "Rhude", "Roberto Cavalli", "Theory", 
+            "Off-White Kids", "RHUDE", "Rhude", "Roberto Cavalli", "Theory", 
             "Stüssy", "Stone Island", "Vilebrequin"
         ]
-        # 1. Start the match stage with your price validation and image filter
-        match_filter = {
-            "original_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
-            "sale_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
-            "product_image": {
-                "$exists": True, 
-                "$type": "string", 
-                "$ne": "",
-                "$regex": "^http"  # Filter out products without images (null, empty, or not starting with http)
-            }
-        }
-
-        # 2. Add the brand filter if brand_names list is provided
-        if brand_names and len(brand_names) > 0:
-            match_filter["brand_name"] = {"$in": brand_names}
-
-        pipeline = [
-            # Match products that meet price criteria AND belong to the selected brands
-            { "$match": match_filter },
-            
-            # Calculate discount difference (original_price - sale_price)
-            {
-                "$addFields": {
-                    "discount_value": {
-                        "$subtract": ["$original_price", "$sale_price"]
-                    }
-                }
-            },
-            # Only include products with positive discount
-            { "$match": { "discount_value": {"$gt": 0} } },
-            
-            # Sort by discount_value descending (highest difference first)
-            { "$sort": {"discount_value": -1} },
-            
-            # Limit results
-            { "$limit": limit },
-            
-            # Project fields and convert _id to id
-            {
-                "$project": {
-                    "_id": 0,
-                    "id": {"$toString": "$_id"},
-                    "discount_value": 1,
-                    "original_price": 1,
-                    "sale_price": 1,
-                    "product_name": 1,
-                    "product_image": 1,
-                    "brand_name": 1,
-                    "product_category": 1,
-                    "product_sub_category": 1,
-                    "product_gender": 1,
-                    "product_description": 1,
-                    "product_color": 1,
-                    "product_material": 1,
-                    "product_occasion": 1,
-                    "currency": 1,
-                    "discount": 1,
-                    "search_tags": 1,
-                    "available_sizes": 1,
-                    "product_link": 1,
-                    "scraped_at": 1
-                }
-            }
-        ]
         
-        items = list(products_collection.aggregate(pipeline))
-        return len(items), items
-
-
-    @staticmethod
-    def get_latest_products(limit: int, skip: int):
-        """Get newest products sorted by scraped_at (or _id fallback) descending."""
+        # Build query with brand filter and image filter
+        query = {
+            "brand_name": {"$in": brand_names}
+        }
+        query.update(ProductRepository.IMAGE_FILTER)
+        
         products = (
-            products_collection.find(ProductRepository.IMAGE_FILTER)
+            products_collection.find(query)
             .sort([("scraped_at", -1), ("_id", -1)])
             .skip(skip)
             .limit(limit)
         )
         items = list(products)
-        total = products_collection.count_documents(ProductRepository.IMAGE_FILTER)
+        total = products_collection.count_documents(query)
 
         for item in items:
             if "_id" in item:
@@ -654,99 +692,6 @@ class ProductRepository:
         
         return total, items
 
-
-    @staticmethod
-    def get_products_with_custom_sort(limit: int, skip: int = 0):
-        """Get products sorted by custom brand order and scraped_at."""
-
-        print("custom sort api called")
-        # Your hardcoded brand order
-        brand_order = ['Brioni', 'Brunello Cucinelli', 'Zegna', 'TOM FORD', 'Bottega Veneta', 'Canali', 'Polo Ralph Lauren', 'John Lobb', 'Johnstons Of Elgin', 'Kiton', 'LOEWE', 'N.Peal', 'Prada', 'Saint Laurent', 'Ralph Lauren Purple Label', 'Salvatore Ferragamo', 'Santoni', 'Zimmermann', 'FARM Rio', 'Chrome Hearts', 'Alexander McQueen', 'Valentino', 'Dolce & Gabbana', 'Dolce&Gabbana', 'Christian Louboutin', 'Maje', 'Sandro Paris', 'Missoni', 'Johanna Ortiz', 'Gabriela Hearst', 'Cartier', 'Marina Rinaldi', 'Christopher Esber', 'Oscar de la Renta', 'Derek Rose', 'Falke', 'Etro', 'ETRO', 'Balenciaga', 'Bally', 'JACQUEMUS', 'Jacquemus', 'Giorgio Armani', 'Canada Goose', 'AMI Paris', 'Yves Salomon', 'Corneliani', 'MACKAGE', 'AG Jeans', 'Fear of God', 'Orlebar Brown', 'EVISU', 'BAPE', 'A BATHING APE®', 'AAPE BY *A BATHING APE®', 'Lanvin', 'Valentino Garavani', 'Versace', "TOD's", "Tod's", 'AllSaints', 'ALLSAINTS', 'Balmain', 'Burberry', 'Chloé', 'Common Projects', 'Fleur du Mal', 'Fendi', 'FERRAGAMO', 'Ferragamo', 'Gucci', 'Hanro', 'Helmut Lang', 'Herno', 'Heron Preston', 'Hogan', 'Isabel Marant', 'Isabel Marant Etoile', 'ISSEY MIYAKE', 'Issey Miyake', 'J.Lindeberg', 'Jimmy Choo', 'Kenzo', 'Ksubi', 'lululemon', 'Mackage', 'Lladró', 'Maison Margiela', 'Marc Jacobs', 'Palm Angels', 'Palm Angels Kids', 'Paige', 'PAIGE', 'Moschino', 'Off-White', 'Off-White Kids', 'Rick Owens', 'Rick Owens DRKSHDW', 'Rick Owens Lilies', 'Rick Owens X Champion', 'RHUDE', 'Rhude', 'Roberto Cavalli', 'Theory', 'Stüssy', 'Stone Island', 'Vilebrequin', "Church's", 'Comme des Garçons', 'Comme Des Garçons', 'Acne Studios', 'Acqua di Parma', 'A-COLD-WALL*', 'Alexander Wang', 'alexanderwang.t', 'alice + olivia', 'Alice+Olivia', 'adidas Yeezy', 'Balmain Kids', 'BAPE BLACK *A BATHING APE®', 'BAPY BY *A BATHING APE®', 'Barbour', 'Barbour International', 'Birkenstock', 'BIRKENSTOCK 1774', 'DOMREBEL', 'VETEMENTS', 'Armani', 'Ea7 Emporio Armani', 'Ed Hardy', 'Fear Of God', 'FEAR OF GOD ESSENTIALS', 'Fear of God ESSENTIALS', 'Fear of God Athletics', 'FEAR OF GOD ESSENTIALS KIDS', 'Fendi Kids', 'FRAME', 'Giuseppe Zanotti', 'Givenchy', 'Gianvito Rossi', 'La Perla', 'Eileen Fisher', 'Elie Tahari', 'Eleventy', 'Emporio Armani', 'Dita Eyewear', 'TOM FORD Eyewear', 'Cartier Eyewear', 'Dolce & Gabbana Eyewear', 'Prada Eyewear', 'Gucci Eyewear', 'Alexander McQueen Eyewear', 'Balenciaga Eyewear', 'Chloé Eyewear', 'Balmain Eyewear', 'Palm Angels Eyewear', 'Burberry Eyewear', 'Givenchy Eyewear', 'Jimmy Choo Eyewear', 'Off-White Eyewear', 'Versace Eyewear', 'Hermès\xa0Pre-Owned', 'CHANEL Pre-Owned', 'Bottega Veneta Pre-Owned', 'Christian Dior Pre-Owned', 'Balenciaga Pre-Owned', 'Celine Pre-Owned', 'Fendi Pre-Owned', 'Goyard Pre-Owned', 'Gucci Pre-Owned', 'Loewe Pre-Owned', 'Louis Vuitton Pre-Owned', 'Prada Pre-Owned', 'Versace Pre-Owned', 'MEMO PARIS', 'Bond No. 9', 'Bobbi Brown', 'Estée Lauder', 'Jo Malone London', 'La Prairie', 'Kerastase', "Kiehl's", 'Lancôme', 'Prada Beauty']
-        
-        # Match filter for products with valid dual pricing and sale_price > 1000
-        match_filter = {
-            "original_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 0},
-            "sale_price": {"$exists": True, "$ne": None, "$type": "number", "$gt": 1000},
-            "$expr": {"$ne": ["$original_price", "$sale_price"]}
-        }
-        # Add image filter
-        match_filter.update(ProductRepository.IMAGE_FILTER)
-        
-        # Get total count of products with valid dual pricing
-        total = products_collection.count_documents(match_filter)
-        
-        pipeline = [
-            # Match only products with valid dual pricing (both prices exist and are different)
-            {
-                "$match": match_filter
-            },
-            {
-                "$addFields": {
-                    "brand_index": {
-                        "$indexOfArray": [brand_order, "$brand_name"]
-                    }
-                }
-            },
-            {
-                # If a brand isn't in your list, indexOfArray returns -1.
-                # We move those to the end by giving them a high priority.
-                # Otherwise, assign priority based on groups of 10:
-                # - First 10 brands (indices 0-9): priority 0
-                # - Next 10 brands (indices 10-19): priority 1
-                # - Next 10 brands (indices 20-29): priority 2
-                # - And so on...
-                "$addFields": {
-                    "brand_priority": {
-                        "$cond": { 
-                            "if": { "$eq": ["$brand_index", -1] }, 
-                            "then": 999, 
-                            "else": {
-                                "$floor": {
-                                    "$divide": ["$brand_index", 3]
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            { "$sort": { "brand_priority": 1, "scraped_at": -1 } },
-            { "$skip": skip },
-            { "$limit": limit },
-            # Project all fields needed for transform_product
-            {
-                "$project": {
-                    "_id": 1,
-                    "product_link": 1,
-                    "product_image": 1,
-                    "brand_name": 1,
-                    "product_name": 1,
-                    "product_description": 1,
-                    "product_category": 1,
-                    "product_sub_category": 1,
-                    "product_gender": 1,
-                    "product_color": 1,
-                    "product_material": 1,
-                    "product_occasion": 1,
-                    "currency": 1,
-                    "original_price": 1,
-                    "sale_price": 1,
-                    "discount": 1,
-                    "search_tags": 1,
-                    "available_sizes": 1,
-                    "scraped_at": 1
-                }
-            }
-        ]
-        
-        items = list(products_collection.aggregate(pipeline))
-        
-        # Convert _id to id string
-        for item in items:
-            if "_id" in item:
-                item["id"] = str(item["_id"])
-                del item["_id"]
-        
-        return total, items
 
     @staticmethod
     def search_products(
@@ -1069,3 +1014,61 @@ class ProductRepository:
                 ordered_products.append(products_map[link])
         
         return ordered_products
+
+    @staticmethod
+    def get_curated_products(brand_keyword_pairs: List[dict]):
+        """
+        Get curated products based on brand_name and keyword pairs.
+        For each tuple (brand_name, keyword), finds products that:
+        - Have the specified brand_name
+        - Have the keyword in product_name OR product_description
+        Returns the union of all products from all tuples (no duplicates).
+        """
+        from bson.regex import Regex
+        
+        if not brand_keyword_pairs:
+            return []
+        
+        # Use a set to track unique product IDs to avoid duplicates
+        seen_product_ids = set()
+        all_products = []
+        
+        # Process each brand_keyword pair
+        for pair in brand_keyword_pairs:
+            brand_name = pair.get("brand_name", "").strip()
+            keyword = pair.get("keyword", "").strip()
+            
+            if not brand_name or not keyword:
+                continue
+            
+            # Build query: brand_name matches AND (keyword in product_name OR product_description)
+            keyword_regex = Regex(keyword, "i")  # Case-insensitive
+            brand_regex = Regex(f"^{brand_name}$", "i")  # Case-insensitive exact match
+            
+            query = {
+                "brand_name": brand_regex,  # Case-insensitive exact match for brand_name
+                "$or": [
+                    {"product_name": keyword_regex},
+                    {"product_description": keyword_regex}
+                ]
+            }
+            query.update(ProductRepository.IMAGE_FILTER)
+            
+            # Find products matching this tuple
+            items = list(products_collection.find(query))
+            
+            # Add products to result set, avoiding duplicates
+            for item in items:
+                if "_id" in item:
+                    product_id = str(item["_id"])
+                    if product_id not in seen_product_ids:
+                        seen_product_ids.add(product_id)
+                        item["id"] = product_id
+                        del item["_id"]
+                        all_products.append(item)
+        
+        # Randomly shuffle the products before returning
+        import random
+        random.shuffle(all_products)
+        
+        return all_products

@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from .service import ProductService
 from typing import List, Optional
-import time
 
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
@@ -16,16 +15,6 @@ def get_top_deals(limit: int = 4, skip: int = 0):
         "limit": limit,
         "skip": skip,
         "has_more": (skip + limit) < total
-    }
-
-@router.get("/best-deals")
-def get_best_deals(limit: int = 20):
-    """Get products with largest discount in dollar terms, sorted by discount_value descending."""
-    total, items = ProductService.get_best_deals(limit)
-    return {
-        "products": items,
-        "total": total,
-        "limit": limit,
     }
 
 @router.get("/latest")
@@ -52,36 +41,9 @@ def list_products(limit: int = 100, skip: int = 0):
         "has_more": (skip + limit) < total
     }
 
-@router.get("/custom-sort")
-def get_products_with_custom_sort(limit: int = 100, skip: int = 0):
-    """Get products sorted by custom brand order and scraped_at."""
-    # print("api hit")
-    total, items = ProductService.get_products_with_custom_sort(limit, skip)
-    return {
-        "products": items,
-        "total": total,
-        "limit": limit,
-        "skip": skip,
-        "has_more": (skip + limit) < total
-    }
-
-@router.get("/category/{category}")
-def get_products_by_category(category: str, limit: int = 100, skip: int = 0):
-    """Get products filtered by category name matching product_name or product_description."""
-    total, items = ProductService.get_products_by_category(category, limit, skip)
-    return {
-        "products": items,
-        "total": total,
-        "limit": limit,
-        "skip": skip,
-        "has_more": (skip + limit) < total,
-        "category": category
-    }
-
 @router.get("/gender/{gender}")
 def get_products_by_gender(gender: str, limit: int = 100, skip: int = 0):
-    """Get products filtered by gender."""
-
+    """Get products filtered by gender. Uses get_products with gender filtering applied in service layer."""
     total, items = ProductService.get_products_by_gender(gender, limit, skip)
     return {
         "products": items,
@@ -194,6 +156,31 @@ def get_products_by_links(request: ProductLinksRequest):
         return {"products": []}
     
     items = ProductService.get_products_by_links(request.product_links)
+    return {
+        "products": items,
+        "total": len(items)
+    }
+
+class CuratedBrandKeywordTuple(BaseModel):
+    brand_name: str
+    keyword: str
+
+class CuratedRequest(BaseModel):
+    brand_keyword_pairs: List[CuratedBrandKeywordTuple]
+
+@router.post("/curated")
+def get_curated_products(request: CuratedRequest):
+    """
+    Get curated products based on brand_name and keyword pairs.
+    For each tuple (brand_name, keyword), finds products that:
+    - Have the specified brand_name
+    - Have the keyword in product_name OR product_description
+    Returns the union of all products from all tuples.
+    """
+    if not request.brand_keyword_pairs:
+        return {"products": [], "total": 0}
+    
+    items = ProductService.get_curated_products(request.brand_keyword_pairs)
     return {
         "products": items,
         "total": len(items)

@@ -601,10 +601,40 @@ class ProductRepository:
         ]
         occasions = list(products_collection.aggregate(occasion_pipeline))
         
+        # Get price range counts
+        price_counts = {}
+        for price_range in PRICE_RANGES:
+            price_query = {}
+            # Add image filter
+            price_query.update(ProductRepository.IMAGE_FILTER)
+            
+            # Build sale_price filter based on range
+            sale_price_filter = {
+                "$exists": True,
+                "$type": "number"
+            }
+            
+            if price_range["min"] is not None and price_range["max"] is not None:
+                sale_price_filter["$gte"] = price_range["min"]
+                sale_price_filter["$lte"] = price_range["max"]
+            elif price_range["min"] is not None:
+                sale_price_filter["$gte"] = price_range["min"]
+            elif price_range["max"] is not None:
+                sale_price_filter["$lte"] = price_range["max"]
+            else:
+                # Both are None, skip this range
+                continue
+            
+            price_query["sale_price"] = sale_price_filter
+            
+            count = products_collection.count_documents(price_query)
+            price_counts[price_range["value"]] = count
+        
         return {
             "categories": categories,
             "brands": brands,
-            "occasions": occasions
+            "occasions": occasions,
+            "price_counts": price_counts
         }
 
     @staticmethod
@@ -616,9 +646,10 @@ class ProductRepository:
         occasion: Optional[List[str]] = None,
         price_min: Optional[float] = None,
         price_max: Optional[float] = None,
-        gender: Optional[str] = None
+        gender: Optional[str] = None,
+        sort_by: Optional[str] = None
     ):
-        """Get products with filters applied. Sorting is handled on the frontend."""
+        """Get products with filters applied. Sorting is handled on the backend."""
         from bson.regex import Regex
         
         query = {}
@@ -677,12 +708,64 @@ class ProductRepository:
         # Get total count
         total = products_collection.count_documents(query)
         
-        # Get filtered items (no sorting - handled on frontend)
-        items = list(
-            products_collection.find(query)
-            .skip(skip)
-            .limit(limit)
-        )
+        # Build sort criteria based on sort_by parameter
+        sort_criteria = []
+        if sort_by:
+            if sort_by == 'price-asc':
+                sort_criteria = [("sale_price", 1), ("original_price", 1)]
+            elif sort_by == 'price-desc':
+                sort_criteria = [("sale_price", -1), ("original_price", -1)]
+            elif sort_by == 'discount-desc':
+                # Sort by discount percentage - use aggregation pipeline to calculate discount percentage
+                # For discount sorting, we need to calculate (original_price - sale_price) / original_price * 100
+                # Since MongoDB doesn't support computed fields in simple sort, we'll use aggregation
+                pipeline = [
+                    {"$match": query},
+                    {"$addFields": {
+                        "discount_percent": {
+                            "$cond": {
+                                "if": {"$and": [
+                                    {"$gt": ["$original_price", 0]},
+                                    {"$gt": ["$sale_price", 0]},
+                                    {"$gt": ["$original_price", "$sale_price"]}
+                                ]},
+                                "then": {
+                                    "$multiply": [
+                                        {"$divide": [
+                                            {"$subtract": ["$original_price", "$sale_price"]},
+                                            "$original_price"
+                                        ]},
+                                        100
+                                    ]
+                                },
+                                "else": 0
+                            }
+                        }
+                    }},
+                    {"$sort": {"discount_percent": -1}},
+                    {"$skip": skip},
+                    {"$limit": limit}
+                ]
+                items = list(products_collection.aggregate(pipeline))
+                # Convert _id to id string
+                for item in items:
+                    if "_id" in item:
+                        item["id"] = str(item["_id"])
+                        del item["_id"]
+                return total, items
+            elif sort_by == 'name-asc':
+                sort_criteria = [("product_name", 1)]
+            elif sort_by == 'name-desc':
+                sort_criteria = [("product_name", -1)]
+            elif sort_by == 'newest':
+                sort_criteria = [("scraped_at", -1)]
+            # 'featured' or None: no sorting, return in database order
+        
+        # Get filtered items with optional sorting
+        find_query = products_collection.find(query)
+        if sort_criteria:
+            find_query = find_query.sort(sort_criteria)
+        items = list(find_query.skip(skip).limit(limit))
         
         # Convert _id to id string
         for item in items:

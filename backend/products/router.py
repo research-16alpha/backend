@@ -68,9 +68,10 @@ def get_filtered_products(
     occasion: Optional[List[str]] = Query(None),
     price_min: Optional[float] = Query(None),
     price_max: Optional[float] = Query(None),
-    gender: Optional[str] = Query(None)
+    gender: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None)
 ):
-    """Get products with filters applied. Sorting is handled on the frontend."""
+    """Get products with filters applied. Sorting is handled on the backend."""
     total, items = ProductService.get_filtered_products(
         limit=limit,
         skip=skip,
@@ -79,7 +80,8 @@ def get_filtered_products(
         occasion=occasion,
         price_min=price_min,
         price_max=price_max,
-        gender=gender
+        gender=gender,
+        sort_by=sort_by
     )
     return {
         "products": items,

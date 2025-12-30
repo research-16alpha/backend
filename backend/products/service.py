@@ -95,42 +95,71 @@ class ProductService:
         """Get filter metadata including categories, brands, occasions with counts."""
         metadata = ProductRepository.get_filter_metadata()
         
-        # Build category filter group
+        def normalize_and_deduplicate(items, field_name="_id"):
+            """Normalize to lowercase, deduplicate, and aggregate counts."""
+            normalized_map = {}
+            for item in items:
+                raw_value = item.get(field_name, "")
+                if not raw_value:
+                    continue
+                # Normalize to lowercase
+                normalized_key = str(raw_value).lower().strip()
+                if normalized_key:
+                    # Aggregate counts for duplicate normalized values
+                    if normalized_key in normalized_map:
+                        normalized_map[normalized_key]["count"] += item.get("count", 0)
+                    else:
+                        normalized_map[normalized_key] = {
+                            "normalized": normalized_key,
+                            "count": item.get("count", 0)
+                        }
+            # Return as list sorted by count descending
+            return sorted(
+                normalized_map.values(),
+                key=lambda x: x["count"],
+                reverse=True
+            )
+        
+        # Normalize and deduplicate categories
+        normalized_categories = normalize_and_deduplicate(metadata["categories"])
         category_options = [
             FilterOption(
-                label=cat["_id"],
-                value=cat["_id"].lower().replace(" ", "-").replace("&", "-"),
+                label=cat["normalized"],  # Send lowercase
+                value=cat["normalized"].replace(" ", "-").replace("&", "-"),
                 count=cat["count"]
             )
-            for cat in metadata["categories"]
+            for cat in normalized_categories
         ]
         
-        # Build brand filter group
+        # Normalize and deduplicate brands
+        normalized_brands = normalize_and_deduplicate(metadata["brands"])
         brand_options = [
             FilterOption(
-                label=brand["_id"],
-                value=brand["_id"].lower().replace(" ", "-").replace("&", "-"),
+                label=brand["normalized"],  # Send lowercase
+                value=brand["normalized"].replace(" ", "-").replace("&", "-"),
                 count=brand["count"]
             )
-            for brand in metadata["brands"]
+            for brand in normalized_brands
         ]
         
-        # Build occasion filter group
+        # Normalize and deduplicate occasions
+        normalized_occasions = normalize_and_deduplicate(metadata["occasions"])
         occasion_options = [
             FilterOption(
-                label=occasion["_id"],
-                value=occasion["_id"].lower().replace(" ", "-").replace("&", "-"),
+                label=occasion["normalized"],  # Send lowercase
+                value=occasion["normalized"].replace(" ", "-").replace("&", "-"),
                 count=occasion["count"]
             )
-            for occasion in metadata["occasions"]
+            for occasion in normalized_occasions
         ]
         
-        # Build price filter group (from constants)
+        # Build price filter group (from constants) with counts
+        price_counts = metadata.get("price_counts", {})
         price_options = [
             FilterOption(
                 label=price["label"],
                 value=price["value"],
-                count=None
+                count=price_counts.get(price["value"], 0)
             )
             for price in PRICE_RANGES
         ]
@@ -178,9 +207,10 @@ class ProductService:
         occasion: Optional[List[str]] = None,
         price_min: Optional[float] = None,
         price_max: Optional[float] = None,
-        gender: Optional[str] = None
+        gender: Optional[str] = None,
+        sort_by: Optional[str] = None
     ):
-        """Get filtered products. Sorting is handled on the frontend."""
+        """Get filtered products. Sorting is handled on the backend."""
         total, items = ProductRepository.get_filtered_products(
             limit=limit,
             skip=skip,
@@ -189,13 +219,11 @@ class ProductService:
             occasion=occasion,
             price_min=price_min,
             price_max=price_max,
-            gender=gender
+            gender=gender,
+            sort_by=sort_by
         )
-        # Shuffle the items list to randomize order
-        items_list = list(items)  # Convert to list if it's not already
-        random.shuffle(items_list)
         
-        transformed = [p for p in map(transform_product, items_list) if p]
+        transformed = [p for p in map(transform_product, items) if p]
         return total, transformed
 
     @staticmethod
